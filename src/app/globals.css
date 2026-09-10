@@ -28,6 +28,8 @@
   --color-ink: var(--ink);
   --color-qa: var(--qa);
   --color-qb: var(--qb);
+  --color-qc: var(--qc);
+  --color-qd: var(--qd);
   --color-proof: var(--riso-red);
 
   --font-sans: var(--font-noto-serif-sc), "Noto Serif SC", serif;
@@ -50,9 +52,11 @@
   --riso-red: #ff4d2e;
   --cobalt: #2440b3;
 
-  /* 当前套印双色（甲/乙），由皮肤切换 */
+  /* 当前套印双色（甲/乙），由皮肤切换；丙丁为四人局固定四色 */
   --qa: #ff4d2e;
   --qb: #2440b3;
+  --qc: #00a95c;
+  --qd: #1a1a1a;
 
   --background: var(--paper);
   --foreground: var(--ink);
@@ -95,6 +99,14 @@
 .skin-gi {
   --qa: #2f6b4f;
   --qb: #1a1a1a;
+}
+
+/* 四人围坐局：钉死四色套印（红/蓝/苔绿/墨黑），皮肤双色让位于四席可辨性 */
+.fourp {
+  --qa: #ff4d2e;
+  --qb: #2440b3;
+  --qc: #00a95c;
+  --qd: #1a1a1a;
 }
 
 html,
@@ -220,6 +232,21 @@ body {
 
 .thinking-dots {
   animation: soft-pulse 1.6s ease-in-out infinite;
+}
+
+/* 棋钟告急：红色闪烁（套印红脉冲） */
+@keyframes clock-danger-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.clock-danger {
+  animation: clock-danger-blink 0.8s steps(2, end) infinite;
 }
 
 /* 触控与精细指针区分 */

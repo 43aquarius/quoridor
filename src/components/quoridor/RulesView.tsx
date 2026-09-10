@@ -110,7 +110,7 @@ export function RulesView() {
             规则
             <span className="ml-4 font-west text-base font-normal italic text-ink/55">editor’s note</span>
           </h2>
-          <span className="font-mono text-[10px] tracking-[0.4em] text-ink/50">CH.04</span>
+          <span className="font-mono text-[10px] tracking-[0.4em] text-ink/50">CH.05</span>
         </div>
       </header>
 
@@ -131,11 +131,13 @@ export function RulesView() {
             快与慢共用同一根笔。以下按行棋顺序，把规矩一条条排开。
           </p>
           <p>
-            全书九路九行，共八十一格。甲乙两枚圆形活字铅块分踞底边与顶边的中列——
+            经典开本为九路九行，共八十一格，每人执十根挡板；开卷时也可改排袖珍五路、沙龙七路或
+            大师十一路的自定义开本，挡板零至二十根随排（见各章「版式规格」面板）。默认仍以
+            经典九路为准。甲乙两枚圆形活字铅块分踞底边与顶边的中列——
             甲在 <span className="tabular font-bold">e1</span>，乙在{" "}
             <span className="tabular font-bold">e9</span>；甲的终点在顶线，乙的终点在底线，
-            彼此的家门就是对方的终点。除此之外，每人手里还握有十根挡板——
-            排版用的粗铅条，每根长两格，专司设障。
+            彼此的家门就是对方的终点。挡板是排版用的粗铅条，
+            每根长两格，专司设障。
           </p>
         </div>
         <DiaBase label="棋盘与开局示意图" caption="图一 · 开局：甲居 e1（下），乙居 e9（上），各执十根铅条。虚线为双方要抵达的底线。">
@@ -235,7 +237,7 @@ export function RulesView() {
             最要紧的是第三条：<b>落板之后，双方必须仍各有一条通往底线的活路</b>。
             编辑部的校对工序会当场验算（BFS），一旦这根板把任何一方彻底封死，
             落点即被驳回——纸面上会有一道红色细线划过，如退稿的校对痕。
-            挡板用尽十根后，余下的回合只能行棋。
+            挡板用尽后，余下的回合只能行棋；开局自定零板，则全书只分行棋一门。
           </p>
         </div>
         <div className="grid gap-6">
@@ -295,6 +297,128 @@ export function RulesView() {
           （h4 为板头锚点，H 横 V 竖）。着法依序编号，连同用时一并录入右侧棋谱栏；
           局终时，这串编号连同路径与挡板，将排成一张可下载收藏的棋谱海报。
         </p>
+      </motion.section>
+
+      {/* 六、棋钟与超时 */}
+      <motion.section
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.42 }}
+        className="mt-14 border-t border-ink/30 pt-10"
+      >
+        <h3 className="mb-4 flex items-baseline gap-3">
+          <span className="font-west text-3xl font-black" style={{ color: BLUE }}>Ⅵ</span>
+          <span className="font-display text-2xl font-black">棋钟与超时</span>
+        </h3>
+        <p className="max-w-3xl text-[15px] leading-[1.9] text-ink/85">
+          开局前可为双方挂一口双轨棋钟：<b>总时长</b>如国际象棋的赛钟，只在你行棋时消耗，
+          耗尽即判负；<b>单步时限</b>是每一手的截稿时刻，超时同样收束全卷。
+          两条轨相互独立，任一触发即判负（编辑部预设：快棋 总 3 分·每步 15 秒，
+          标准 总 5 分·每步 30 秒，长卷 总 10 分·每步 60 秒；亦可手调档位，直至不限时）。
+          边栏读秒以荧光红警示临界的最后三十秒（单步为最后十秒）。
+          在线对局中棋钟以服务器为终审——掉线不停钟，回座后局面与读秒一并恢复；
+          断线逾五分钟未归，按编辑部规矩判离席方负。人机对局里 AI 思考照走棋钟，
+          但它的算路快得很，鲜有超时之忧。
+        </p>
+      </motion.section>
+
+      {/* 七、四人围坐 */}
+      <motion.section
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.48 }}
+        className="mt-14 border-t border-ink/30 pt-10"
+      >
+        <h3 className="mb-4 flex items-baseline gap-3">
+          <span className="font-west text-3xl font-black" style={{ color: RED }}>Ⅶ</span>
+          <span className="font-display text-2xl font-black">四人围坐（围桌赛制）</span>
+        </h3>
+        <p className="max-w-3xl text-[15px] leading-[1.9] text-ink/85">
+          四副活字围一册棋盘：<b>甲执荧光红居南</b>（底边中列，归途为顶行）、
+          <b>丙执苔绿居西</b>（左边中行，归途为右列）、<b>乙执钴蓝居北</b>（顶边中列，归途为底行）、
+          <b>丁执墨黑居东</b>（右边中行，归途为左列）。行棋顺时针轮转：
+          <span className="tabular font-bold">甲→丙→乙→丁</span>，先抵归途者即刻收笔。
+          每人挡板减半（九路经典围坐每人五根），放板须同时保住四位在场席位的通路。
+          跳子规矩同前，但盘上最多四枚铅字：三子一线时直跳落位被占，可斜跳至被跳子两侧空位。
+        </p>
+        <p className="mt-4 max-w-3xl text-[15px] leading-[1.9] text-ink/85">
+          围桌采用<b>出局制</b>：认输、超时或离席逾五分钟不再是终局，而是该席出局——
+          其铅字留在盘上充作障碍（可被跳越），剩余席位继续行棋；仅存一席时，
+          该席以「末位收笔」胜出。本地围坐可任意搭配真人与编辑部 AI；
+          在线四人房由房主开局，等不齐的空座可交给编辑部代打，断线者出局不散桌。
+        </p>
+        {/* 围桌方位图 */}
+        <div className="mt-6 grid gap-5 sm:grid-cols-2">
+          <DiaBase
+            label="四人围坐方位与顺时针行棋次序"
+            caption="四席各据一边中点，箭头为顺时针轮转：甲（南）→ 丙（西）→ 乙（北）→ 丁（东）；色标即各自的归途线。"
+          >
+            <g>
+              {/* 棋盘格 */}
+              {Array.from({ length: 5 }, (_, i) => (
+                <g key={i}>
+                  <line x1={50 + i * 50} y1={30} x2={50 + i * 50} y2={230} stroke={INK} strokeWidth={1.1} />
+                  <line x1={50} y1={30 + i * 50} x2={250} y2={30 + i * 50} stroke={INK} strokeWidth={1.1} />
+                </g>
+              ))}
+              {/* 归途线色标（四边中点） */}
+              <rect x={130} y={24} width={40} height={6} rx={3} fill={RED} />
+              <rect x={130} y={210} width={40} height={6} rx={3} fill={BLUE} />
+              <rect x={244} y={130} width={6} height={40} rx={3} fill="var(--qc)" />
+              <rect x={20} y={130} width={6} height={40} rx={3} fill="var(--qd)" />
+              {/* 四席铅字 */}
+              <g>
+                <circle cx={150} cy={215} r={16} fill={RED} />
+                <text x={150} y={215} textAnchor="middle" dominantBaseline="central" fontSize={15} fontWeight={900} fill="var(--paper)">甲</text>
+              </g>
+              <g>
+                <circle cx={150} cy={45} r={16} fill={BLUE} />
+                <text x={150} y={45} textAnchor="middle" dominantBaseline="central" fontSize={15} fontWeight={900} fill="var(--paper)">乙</text>
+              </g>
+              <g>
+                <circle cx={55} cy={130} r={16} fill="var(--qc)" />
+                <text x={55} y={130} textAnchor="middle" dominantBaseline="central" fontSize={15} fontWeight={900} fill="var(--paper)">丙</text>
+              </g>
+              <g>
+                <circle cx={245} cy={130} r={16} fill="var(--qd)" />
+                <text x={245} y={130} textAnchor="middle" dominantBaseline="central" fontSize={15} fontWeight={900} fill="var(--paper)">丁</text>
+              </g>
+              {/* 顺时针箭头 */}
+              <Arrow x1={178} y1={200} x2={212} y2={168} color={INK} />
+              <Arrow x1={212} y1={92} x2={178} y2={60} color={INK} />
+              <Arrow x1={88} y1={60} x2={60} y2={92} color={INK} />
+              <Arrow x1={60} y1={168} x2={88} y2={200} color={INK} />
+            </g>
+          </DiaBase>
+          <DiaBase
+            label="四人局出局制"
+            caption="认输/超时/离席逾时者出局：铅字留盘作障碍（加叉线），仅存一席时末位收笔；先抵归途仍即刻收笔。"
+          >
+            <g>
+              {Array.from({ length: 5 }, (_, i) => (
+                <g key={`g${i}`}>
+                  <line x1={50 + i * 50} y1={30} x2={50 + i * 50} y2={230} stroke={INK} strokeWidth={1.1} />
+                  <line x1={50} y1={30 + i * 50} x2={250} y2={30 + i * 50} stroke={INK} strokeWidth={1.1} />
+                </g>
+              ))}
+              {/* 出局的丙（左中，叉线） */}
+              <g opacity={0.5}>
+                <circle cx={55} cy={130} r={16} fill="var(--qc)" />
+                <text x={55} y={130} textAnchor="middle" dominantBaseline="central" fontSize={15} fontWeight={900} fill="var(--paper)">丙</text>
+                <g stroke={INK} strokeWidth={2.6} strokeLinecap="round">
+                  <line x1={43} y1={118} x2={67} y2={142} />
+                  <line x1={67} y1={118} x2={43} y2={142} />
+                </g>
+              </g>
+              {/* 甲冲线 */}
+              <circle cx={150} cy={95} r={16} fill={RED} />
+              <text x={150} y={95} textAnchor="middle" dominantBaseline="central" fontSize={15} fontWeight={900} fill="var(--paper)">甲</text>
+              <Arrow x1={150} y1={118} x2={150} y2={70} color={RED} />
+              <text x={150} y={52} textAnchor="middle" fontSize={12} className="tabular" fill={INK} opacity={0.6} style={{ fontFamily: "var(--font-mono)" }}>甲抵顶行 · 收笔</text>
+              <text x={55} y={165} textAnchor="middle" fontSize={11} fill={INK} opacity={0.6} style={{ fontFamily: "var(--font-mono)" }}>丙已出局</text>
+            </g>
+          </DiaBase>
+        </div>
       </motion.section>
 
       <div className="mt-14 border-t-2 border-ink pt-6">

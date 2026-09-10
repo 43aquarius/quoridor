@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, ImageDown, Trash2, ChevronDown, ArchiveX } from "lucide-react";
 import { useQuoridor } from "@/store/game-store";
 import { entryFootnotes, type ArchiveEntry } from "@/lib/game/archive";
-import { AI_PROFILES } from "@/lib/game/types";
+import { AI_PROFILES, PLAYER_CN, playerColorVar } from "@/lib/game/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -23,13 +23,35 @@ function Spread({ entry, index }: { entry: ArchiveEntry; index: number }) {
   const openPoster = useQuoridor((s) => s.openPoster);
   const deleteEntry = useQuoridor((s) => s.deleteArchiveEntry);
 
+  const four = entry.playerCount === 4;
   const modeStr =
     entry.mode === "ai" && entry.aiLevel
       ? `单人对弈 · ${AI_PROFILES[entry.aiLevel].name}`
       : entry.mode === "local"
-        ? "双人同屏"
-        : "在线对战";
-  const winnerColor = entry.winner === "A" ? "var(--qa)" : "var(--qb)";
+        ? four
+          ? "四人围坐"
+          : "双人同屏"
+        : four
+          ? "在线四人围桌"
+          : "在线对战";
+  const winnerColor =
+    entry.winner === "A"
+      ? "var(--qa)"
+      : entry.winner === "B"
+        ? "var(--qb)"
+        : entry.winner === "C"
+          ? "var(--qc)"
+          : "var(--qd)";
+  const winnerLabel =
+    entry.winner === "A"
+      ? entry.labelA
+      : entry.winner === "B"
+        ? entry.labelB
+        : entry.winner === "C"
+          ? (entry.labelC ?? "丙")
+          : entry.winner === "D"
+            ? (entry.labelD ?? "丁")
+            : "";
   const notes = entryFootnotes(entry);
 
   return (
@@ -60,10 +82,21 @@ function Spread({ entry, index }: { entry: ArchiveEntry; index: number }) {
         <div>
           <p className="font-mono text-[10px] tracking-[0.3em] text-ink/50">RESULT · 收笔</p>
           <p className="mt-2 font-display text-4xl font-black leading-tight" style={{ color: winnerColor }}>
-            {entry.winner === "A" ? entry.labelA : entry.labelB} 胜
+            {entry.winner ? `${winnerLabel} 胜` : "未分胜负"}
           </p>
           <p className="mt-1 font-mono text-[11px] text-ink/55">
-            {entry.winReason === "resign" ? "认输收束" : "抵达底线"} · {entry.moveCount} 手
+            {entry.winReason === "resign"
+              ? four
+                ? "众席认输 · 末位收笔"
+                : "认输收束"
+              : entry.winReason === "timeout"
+                ? four
+                  ? "众席超时出局 · 末位收笔"
+                  : "超时判负"
+                : entry.winReason === "last"
+                  ? "众席出局 · 末位收笔"
+                  : "抵达底线"}{" "}
+            · {entry.moveCount} 手{four ? " · 四人围坐" : ""}
           </p>
           <div className="mt-4 flex gap-2">
             <Button
@@ -118,10 +151,10 @@ function Spread({ entry, index }: { entry: ArchiveEntry; index: number }) {
             {entry.moves.map((m) => (
               <li key={m.n} className="flex items-baseline gap-3 py-[2px]">
                 <span className="tabular w-7 shrink-0 text-[11px] text-ink/45">{String(m.n).padStart(2, "0")}</span>
-                <span className="w-5 shrink-0 text-[11px] font-bold" style={{ color: m.player === "A" ? "var(--qa)" : "var(--qb)" }}>
-                  {m.player === "A" ? "甲" : "乙"}
+                <span className="w-5 shrink-0 text-[11px] font-bold" style={{ color: playerColorVar(m.player) }}>
+                  {PLAYER_CN[m.player]}
                 </span>
-                <span className="tabular text-[12px]" style={{ color: m.player === "A" ? "var(--qa)" : "var(--qb)" }}>
+                <span className="tabular text-[12px]" style={{ color: playerColorVar(m.player) }}>
                   {m.notation}
                 </span>
               </li>

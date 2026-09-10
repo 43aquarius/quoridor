@@ -4,37 +4,45 @@
  * 视图切换 cross-fade + 水平滑动（翻页语言），riso 光标拖尾。
  */
 
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuoridor } from "@/store/game-store";
 import { skinById } from "@/lib/game/types";
 import { HeroView } from "./HeroView";
 import { ContentsView } from "./ContentsView";
 import { SetupView } from "./SetupView";
+import { LocalSetupView } from "./LocalSetupView";
+import { QuadSetupView } from "./QuadSetupView";
 import { RoomView } from "./RoomView";
 import { GameView } from "./GameView";
 import { RulesView } from "./RulesView";
 import { ArchiveView } from "./ArchiveView";
 import { CursorTrail } from "./CursorTrail";
 import { PosterModal } from "./PosterModal";
+import { GithubMark, GITHUB_REPO_URL } from "./GithubMark";
 
 const PAGE_LABEL: Record<string, string> = {
   hero: "封面",
   contents: "目 录",
   setup: "第Ⅰ章 · 单人对弈",
-  room: "第Ⅲ章 · 在线对战",
+  localsetup: "第Ⅱ章 · 双人同屏",
+  quadsetup: "第Ⅲ章 · 四人围坐",
+  room: "第Ⅳ章 · 在线对战",
   game: "对局页",
-  rules: "第Ⅳ章 · 规则",
-  archive: "第Ⅴ章 · 棋谱档案馆",
+  rules: "第Ⅴ章 · 规则",
+  archive: "第Ⅵ章 · 棋谱档案馆",
 };
 
 const FOLIO: Record<string, string> = {
   hero: "F",
   contents: "i",
   setup: "1",
-  room: "3",
+  localsetup: "2",
+  quadsetup: "3",
+  room: "4",
   game: "∞",
-  rules: "4",
-  archive: "5",
+  rules: "5",
+  archive: "6",
 };
 
 const variants = {
@@ -47,11 +55,20 @@ export function QuoridorApp() {
   const view = useQuoridor((s) => s.view);
   const skin = useQuoridor((s) => s.skin);
   const posterOpen = useQuoridor((s) => s.posterOpen);
+  const playerCount = useQuoridor((s) => s.state?.playerCount);
+
+  /* 挂载后（hydration 已完成）再从 localStorage 恢复持久化偏好。
+   * 初始渲染用确定性默认值，保证 SSR HTML 与客户端首帧完全一致，
+   * 避免 skin-xx 类名等属性 mismatch。 */
+  useEffect(() => {
+    useQuoridor.getState().hydrate();
+  }, []);
 
   return (
     <div
       className={`skin-${skin} relative min-h-[100svh] w-full overflow-x-clip bg-paper text-ink`}
     >
+      {playerCount === 4 && <FourpColorScope />}
       {/* 纸面噪点 */}
       <div className="noise-overlay" aria-hidden />
       {/* riso 光标拖尾 */}
@@ -63,8 +80,20 @@ export function QuoridorApp() {
           <span className="font-mono text-[9px] tracking-[0.35em] text-ink/50">
             步步为营 · QUORIDOR — 限量印刷棋谱专著
           </span>
-          <span className="font-mono text-[9px] tracking-[0.35em] text-ink/50">
-            {skinById(skin).label} 套印
+          <span className="flex items-center gap-4">
+            <span className="font-mono text-[9px] tracking-[0.35em] text-ink/50">
+              {skinById(skin).label} 套印
+            </span>
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="开源仓库 · GitHub"
+              aria-label="开源仓库 GitHub"
+              className="pointer-events-auto text-ink/55 transition-colors hover:text-ink"
+            >
+              <GithubMark className="h-4 w-4" />
+            </a>
           </span>
         </header>
       )}
@@ -90,6 +119,8 @@ export function QuoridorApp() {
             {view === "hero" && <HeroView />}
             {view === "contents" && <ContentsView />}
             {view === "setup" && <SetupView />}
+            {view === "localsetup" && <LocalSetupView />}
+            {view === "quadsetup" && <QuadSetupView />}
             {view === "room" && <RoomView />}
             {view === "game" && <GameView />}
             {view === "rules" && <RulesView />}
@@ -105,4 +136,15 @@ export function QuoridorApp() {
       {posterOpen && <PosterModal />}
     </div>
   );
+}
+
+/* 四色域：给根元素追加 fourp 类（钉死红/蓝/苔绿/墨黑四色套印） */
+function FourpColorScope() {
+  useEffect(() => {
+    document.documentElement.classList.add("fourp");
+    return () => {
+      document.documentElement.classList.remove("fourp");
+    };
+  }, []);
+  return null;
 }

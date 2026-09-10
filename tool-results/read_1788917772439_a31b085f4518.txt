@@ -1,0 +1,1097 @@
+     1→/* 步步为营 —— AI 对手四档（编辑职位命名）
+     2→ * 1 学徒：最短路径 + 偶尔随机放板（保留笨拙的可爱）
+     3→ * 2 排字师：浅层搜索（深度 2，按路径差增益排序候选）——聪明的贪心
+     4→ * 3 总编：Negamax（固定视角 α-β）+ Zobrist 置换表 + 杀手着法/历史启发，
+     5→ *         评估：路径差（随挡板耗尽而权重攀升）、挡板存量、机动空间、行棋权
+     6→ * 4 社长：搜索预算全开（更深度数、更大候选窗、更久预算），终局纯竞速精确判胜
+     7→ * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
+     8→ */
+     9→
+    10→import {
+    11→  AiLevel,
+    12→  GameState,
+    13→  MovePayload,
+    14→  Orientation,
+    15→  Player,
+    16→  Vec,
+    17→  WallPayload,
+    18→  goalRow,
+    19→  opponent,
+    20→} from "./types";
+    21→import {
+    22→  bfsDistanceToGoal,
+    23→  buildWallGrids,
+    24→  boardSize,
+    25→  checkWall,
+    26→  edgeBlockedG,
+    27→  legalPawnMoves,
+    28→  wallConflicts,
+    29→} from "./engine";
+    30→
+    31→export interface AiDecision {
+    32→  payload: MovePayload;
+    33→  label: string;
+    34→}
+    35→
+    36→/* ============ 档位参数 ============ */
+    37→
+    38→interface LevelParams {
+    39→  budgetMs: number; // 搜索时间预算
+    40→  maxDepth: number; // 迭代加深深度上限
+    41→  wallLimit: number; // 内层节点挡板候选上限
+    42→  rootWallLimit: number; // 根节点挡板候选上限（探针验证后保留数）
+    43→}
+    44→
+    45→const MAX_PLY = 24;
+    46→const EVAL_WIN = 100000;
+    47→const MAX_CELLS = 169;
+    48→const MAX_ANCHORS = 144;
+    49→const MAX_WALL_COUNT = 21;
+    50→const WALL_CODE_SPACE = 288; // (144 锚点 × 2 朝向)
+    51→const PAWN_CODE_BASE = 0x100000;
+    52→
+    53→/* 测试辅助：环境变量覆写深度/候选上限（Node 脚本用；浏览器忽略） */
+    54→const ENV_DEPTH = typeof process !== "undefined" && process.env?.QUORIDOR_AI_DEPTH ? Number(process.env.QUORIDOR_AI_DEPTH) : null;
+    55→const ENV_WALLS = typeof process !== "undefined" && process.env?.QUORIDOR_AI_WALLS ? Number(process.env.QUORIDOR_AI_WALLS) : null;
+    56→const ENV_ROOT = typeof process !== "undefined" && process.env?.QUORIDOR_AI_ROOT ? Number(process.env.QUORIDOR_AI_ROOT) : null;
+    57→
+    58→function levelParams(level: AiLevel, size: number): LevelParams {
+    59→  /* BFS 开销随 N² 增长：按尺寸缩放预算 */
+    60→  const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.35 : 1.7;
+    61→  if (level === 2) {
+    62→    return {
+    63→      budgetMs: Math.round(280 * sizeScale),
+    64→      maxDepth: ENV_DEPTH ?? 2,
+    65→      wallLimit: ENV_WALLS ?? 10,
+    66→      rootWallLimit: ENV_ROOT ?? 12,
+    67→    };
+    68→  }
+    69→  if (level === 3) {
+    70→    return {
+    71→      budgetMs: Math.round(850 * sizeScale),
+    72→      maxDepth: ENV_DEPTH ?? (size <= 7 ? 6 : size === 9 ? 5 : 4),
+    73→      wallLimit: ENV_WALLS ?? 12,
+    74→      rootWallLimit: ENV_ROOT ?? 16,
+    75→    };
+    76→  }
+    77→  /* level 4 社长 */
+    78→  return {
+    79→    budgetMs: Math.round(1900 * sizeScale),
+    80→    maxDepth: ENV_DEPTH ?? (size <= 7 ? 8 : size === 9 ? 6 : size === 11 ? 5 : 4),
+    81→    wallLimit: ENV_WALLS ?? 14,
+    82→    rootWallLimit: ENV_ROOT ?? 20,
+    83→  };
+    84→}
+    85→
+    86→/* ============ 可变搜索核心（do/undo，增量 Zobrist） ============ */
+    87→
+    88→interface Core {
+    89→  size: number; // 棋盘边长 N
+    90→  h: Uint8Array; // (N-1)²
+    91→  v: Uint8Array;
+    92→  posA: Vec;
+    93→  posB: Vec;
+    94→  wallsA: number;
+    95→  wallsB: number;
+    96→  wallsStart: number;
+    97→  hashLo: number;
+    98→  hashHi: number;
+    99→}
+   100→
+   101→/* —— Zobrist 键表（双 32 位，xorshift 确定性生成） —— */
+   102→
+   103→function makeRng(seed: number): () => number {
+   104→  let s = seed >>> 0;
+   105→  return () => {
+   106→    s ^= s << 13;
+   107→    s >>>= 0;
+   108→    s ^= s >>> 17;
+   109→    s ^= s << 5;
+   110→    s >>>= 0;
+   111→    return s;
+   112→  };
+   113→}
+   114→
+   115→const rng = makeRng(0x5f3759df);
+   116→const zPawnALo = new Int32Array(MAX_CELLS);
+   117→const zPawnAHi = new Int32Array(MAX_CELLS);
+   118→const zPawnBLo = new Int32Array(MAX_CELLS);
+   119→const zPawnBHi = new Int32Array(MAX_CELLS);
+   120→const zWallHLo = new Int32Array(MAX_ANCHORS);
+   121→const zWallHHi = new Int32Array(MAX_ANCHORS);
+   122→const zWallVLo = new Int32Array(MAX_ANCHORS);
+   123→const zWallVHi = new Int32Array(MAX_ANCHORS);
+   124→const zWallsALo = new Int32Array(MAX_WALL_COUNT + 2);
+   125→const zWallsAHi = new Int32Array(MAX_WALL_COUNT + 2);
+   126→const zWallsBLo = new Int32Array(MAX_WALL_COUNT + 2);
+   127→const zWallsBHi = new Int32Array(MAX_WALL_COUNT + 2);
+   128→let zSideLo = 0;
+   129→let zSideHi = 0;
+   130→(function initZobrist() {
+   131→  for (let i = 0; i < MAX_CELLS; i++) {
+   132→    zPawnALo[i] = rng();
+   133→    zPawnAHi[i] = rng();
+   134→    zPawnBLo[i] = rng();
+   135→    zPawnBHi[i] = rng();
+   136→  }
+   137→  for (let i = 0; i < MAX_ANCHORS; i++) {
+   138→    zWallHLo[i] = rng();
+   139→    zWallHHi[i] = rng();
+   140→    zWallVLo[i] = rng();
+   141→    zWallVHi[i] = rng();
+   142→  }
+   143→  for (let i = 0; i <= MAX_WALL_COUNT + 1; i++) {
+   144→    zWallsALo[i] = rng();
+   145→    zWallsAHi[i] = rng();
+   146→    zWallsBLo[i] = rng();
+   147→    zWallsBHi[i] = rng();
+   148→  }
+   149→  zSideLo = rng();
+   150→  zSideHi = rng();
+   151→})();
+   152→
+   153→function toCore(state: GameState): Core {
+   154→  const size = boardSize(state);
+   155→  const g = buildWallGrids(state.walls, size);
+   156→  const W = size - 1;
+   157→  let lo = 0;
+   158→  let hi = 0;
+   159→  const ai = state.posA.y * size + state.posA.x;
+   160→  const bi = state.posB.y * size + state.posB.x;
+   161→  lo ^= zPawnALo[ai] ^ zPawnBLo[bi];
+   162→  hi ^= zPawnAHi[ai] ^ zPawnBHi[bi];
+   163→  for (let i = 0; i < W * W; i++) {
+   164→    if (g.h[i]) {
+   165→      lo ^= zWallHLo[i];
+   166→      hi ^= zWallHHi[i];
+   167→    }
+   168→    if (g.v[i]) {
+   169→      lo ^= zWallVLo[i];
+   170→      hi ^= zWallVHi[i];
+   171→    }
+   172→  }
+   173→  const wa = Math.min(Math.max(state.wallsA, 0), MAX_WALL_COUNT);
+   174→  const wb = Math.min(Math.max(state.wallsB, 0), MAX_WALL_COUNT);
+   175→  lo ^= zWallsALo[wa] ^ zWallsBLo[wb];
+   176→  hi ^= zWallsAHi[wa] ^ zWallsBHi[wb];
+   177→  if (state.turn === "B") {
+   178→    lo ^= zSideLo;
+   179→    hi ^= zSideHi;
+   180→  }
+   181→  return {
+   182→    size,
+   183→    h: g.h,
+   184→    v: g.v,
+   185→    posA: { ...state.posA },
+   186→    posB: { ...state.posB },
+   187→    wallsA: state.wallsA,
+   188→    wallsB: state.wallsB,
+   189→    wallsStart: Number.isFinite(state.wallsStart) ? state.wallsStart : 10,
+   190→    hashLo: lo | 0,
+   191→    hashHi: hi | 0,
+   192→  };
+   193→}
+   194→
+   195→function coreDist(c: Core, p: Player): number {
+   196→  return bfsDistanceToGoal(
+   197→    { h: c.h, v: c.v },
+   198→    p === "A" ? c.posA : c.posB,
+   199→    p,
+   200→    c.size,
+   201→  );
+   202→}
+   203→
+   204→/* 试放一块挡板（不落位），返回双方新距离；pathCut 为任一方无路 */
+   205→function coreProbeWall(
+   206→  c: Core,
+   207→  x: number,
+   208→  y: number,
+   209→  o: Orientation,
+   210→): { dA: number; dB: number; pathCut: boolean } {
+   211→  const W = c.size - 1;
+   212→  const idx = y * W + x;
+   213→  const grid = o === "h" ? c.h : c.v;
+   214→  const was = grid[idx];
+   215→  grid[idx] = 1;
+   216→  const dA = bfsDistanceToGoal({ h: c.h, v: c.v }, c.posA, "A", c.size);
+   217→  const dB = bfsDistanceToGoal({ h: c.h, v: c.v }, c.posB, "B", c.size);
+   218→  grid[idx] = was;
+   219→  return { dA, dB, pathCut: dA < 0 || dB < 0 };
+   220→}
+   221→
+   222→/* do/undo（xor 自逆，成对异或即还原） */
+   223→
+   224→function applyPawnC(c: Core, p: Player, to: Vec) {
+   225→  const size = c.size;
+   226→  const zLo = p === "A" ? zPawnALo : zPawnBLo;
+   227→  const zHi = p === "A" ? zPawnAHi : zPawnBHi;
+   228→  const cur = p === "A" ? c.posA : c.posB;
+   229→  const fi = cur.y * size + cur.x;
+   230→  const ti = to.y * size + to.x;
+   231→  c.hashLo = (c.hashLo ^ zLo[fi] ^ zLo[ti] ^ zSideLo) | 0;
+   232→  c.hashHi = (c.hashHi ^ zHi[fi] ^ zHi[ti] ^ zSideHi) | 0;
+   233→  if (p === "A") c.posA = { x: to.x, y: to.y };
+   234→  else c.posB = { x: to.x, y: to.y };
+   235→}
+   236→
+   237→function undoPawnC(c: Core, p: Player, from: Vec) {
+   238→  const size = c.size;
+   239→  const zLo = p === "A" ? zPawnALo : zPawnBLo;
+   240→  const zHi = p === "A" ? zPawnAHi : zPawnBHi;
+   241→  const cur = p === "A" ? c.posA : c.posB;
+   242→  const fi = from.y * size + from.x;
+   243→  const ti = cur.y * size + cur.x;
+   244→  c.hashLo = (c.hashLo ^ zLo[fi] ^ zLo[ti] ^ zSideLo) | 0;
+   245→  c.hashHi = (c.hashHi ^ zHi[fi] ^ zHi[ti] ^ zSideHi) | 0;
+   246→  if (p === "A") c.posA = { x: from.x, y: from.y };
+   247→  else c.posB = { x: from.x, y: from.y };
+   248→}
+   249→
+   250→function applyWallC(c: Core, p: Player, x: number, y: number, o: Orientation) {
+   251→  const W = c.size - 1;
+   252→  const idx = y * W + x;
+   253→  c.hashLo = (c.hashLo ^ (o === "h" ? zWallHLo[idx] : zWallVLo[idx]) ^ zSideLo) | 0;
+   254→  c.hashHi = (c.hashHi ^ (o === "h" ? zWallHHi[idx] : zWallVHi[idx]) ^ zSideHi) | 0;
+   255→  if (o === "h") c.h[idx] = 1;
+   256→  else c.v[idx] = 1;
+   257→  if (p === "A") {
+   258→    const k = c.wallsA;
+   259→    c.hashLo = (c.hashLo ^ zWallsALo[k] ^ zWallsALo[k - 1]) | 0;
+   260→    c.hashHi = (c.hashHi ^ zWallsAHi[k] ^ zWallsAHi[k - 1]) | 0;
+   261→    c.wallsA = k - 1;
+   262→  } else {
+   263→    const k = c.wallsB;
+   264→    c.hashLo = (c.hashLo ^ zWallsBLo[k] ^ zWallsBLo[k - 1]) | 0;
+   265→    c.hashHi = (c.hashHi ^ zWallsBHi[k] ^ zWallsBHi[k - 1]) | 0;
+   266→    c.wallsB = k - 1;
+   267→  }
+   268→}
+   269→
+   270→function undoWallC(c: Core, p: Player, x: number, y: number, o: Orientation) {
+   271→  const W = c.size - 1;
+   272→  const idx = y * W + x;
+   273→  c.hashLo = (c.hashLo ^ (o === "h" ? zWallHLo[idx] : zWallVLo[idx]) ^ zSideLo) | 0;
+   274→  c.hashHi = (c.hashHi ^ (o === "h" ? zWallHHi[idx] : zWallVHi[idx]) ^ zSideHi) | 0;
+   275→  if (o === "h") c.h[idx] = 0;
+   276→  else c.v[idx] = 0;
+   277→  if (p === "A") {
+   278→    const k = c.wallsA; // 撤销前 = k-1，撤销后 = k
+   279→    c.wallsA = k + 1;
+   280→    c.hashLo = (c.hashLo ^ zWallsALo[k + 1] ^ zWallsALo[k]) | 0;
+   281→    c.hashHi = (c.hashHi ^ zWallsAHi[k + 1] ^ zWallsAHi[k]) | 0;
+   282→  } else {
+   283→    const k = c.wallsB;
+   284→    c.wallsB = k + 1;
+   285→    c.hashLo = (c.hashLo ^ zWallsBLo[k + 1] ^ zWallsBLo[k]) | 0;
+   286→    c.hashHi = (c.hashHi ^ zWallsBHi[k + 1] ^ zWallsBHi[k]) | 0;
+   287→  }
+   288→}
+   289→
+   290→/* 基于 core 的棋子合法着法（含直跳/斜跳） */
+   291→function coreLegalPawnMoves(c: Core, p: Player): Vec[] {
+   292→  const N = c.size;
+   293→  const me = p === "A" ? c.posA : c.posB;
+   294→  const op = p === "A" ? c.posB : c.posA;
+   295→  const grids = { h: c.h, v: c.v };
+   296→  const res: Vec[] = [];
+   297→  const dirs: Array<[number, number]> = [
+   298→    [0, -1],
+   299→    [0, 1],
+   300→    [-1, 0],
+   301→    [1, 0],
+   302→  ];
+   303→  for (const [dx, dy] of dirs) {
+   304→    const nx = me.x + dx;
+   305→    const ny = me.y + dy;
+   306→    if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
+   307→    if (edgeBlockedG(grids, me.x, me.y, dx, dy)) continue;
+   308→    if (op.x === nx && op.y === ny) {
+   309→      const jx = me.x + 2 * dx;
+   310→      const jy = me.y + 2 * dy;
+   311→      const inB = jx >= 0 && jx <= N - 1 && jy >= 0 && jy <= N - 1;
+   312→      const clear = inB && !edgeBlockedG(grids, nx, ny, dx, dy);
+   313→      if (clear) {
+   314→        res.push({ x: jx, y: jy });
+   315→        continue;
+   316→      }
+   317→      const perps: Array<[number, number]> =
+   318→        dx !== 0 ? [[0, -1], [0, 1]] : [[-1, 0], [1, 0]];
+   319→      for (const [px, py] of perps) {
+   320→        const sx = nx + px;
+   321→        const sy = ny + py;
+   322→        if (sx < 0 || sx > N - 1 || sy < 0 || sy > N - 1) continue;
+   323→        if (edgeBlockedG(grids, nx, ny, px, py)) continue;
+   324→        res.push({ x: sx, y: sy });
+   325→      }
+   326→    } else {
+   327→      res.push({ x: nx, y: ny });
+   328→    }
+   329→  }
+   330→  return res;
+   331→}
+   332→
+   333→/* —— 某方最短路格点标记（排序用；返回共享缓冲，即时消费） —— */
+   334→const _pmDist = new Int16Array(MAX_CELLS);
+   335→const _pmParent = new Int16Array(MAX_CELLS);
+   336→const _pmQueue = new Int16Array(MAX_CELLS);
+   337→const _pmMarks = new Uint8Array(MAX_CELLS);
+   338→
+   339→function corePathMarks(c: Core, p: Player): Uint8Array | null {
+   340→  const N = c.size;
+   341→  const from = p === "A" ? c.posA : c.posB;
+   342→  const goal = goalRow(p, N);
+   343→  if (from.y === goal) return null;
+   344→  const grids = { h: c.h, v: c.v };
+   345→  _pmDist.fill(-1, 0, N * N);
+   346→  _pmParent.fill(-1, 0, N * N);
+   347→  const start = from.y * N + from.x;
+   348→  _pmDist[start] = 0;
+   349→  let head = 0;
+   350→  let tail = 0;
+   351→  _pmQueue[tail++] = start;
+   352→  let goalIdx = -1;
+   353→  while (head < tail) {
+   354→    const cur = _pmQueue[head++];
+   355→    const cx = cur % N;
+   356→    const cy = (cur - cx) / N;
+   357→    if (cy === goal) {
+   358→      goalIdx = cur;
+   359→      break;
+   360→    }
+   361→    const dirs: Array<[number, number]> = [
+   362→      [0, -1],
+   363→      [0, 1],
+   364→      [-1, 0],
+   365→      [1, 0],
+   366→    ];
+   367→    for (const [dx, dy] of dirs) {
+   368→      const nx = cx + dx;
+   369→      const ny = cy + dy;
+   370→      if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
+   371→      if (edgeBlockedG(grids, cx, cy, dx, dy)) continue;
+   372→      const ni = ny * N + nx;
+   373→      if (_pmDist[ni] >= 0) continue;
+   374→      _pmDist[ni] = _pmDist[cur] + 1;
+   375→      _pmParent[ni] = cur;
+   376→      _pmQueue[tail++] = ni;
+   377→    }
+   378→  }
+   379→  if (goalIdx < 0) return null;
+   380→  _pmMarks.fill(0, 0, N * N);
+   381→  let cur = goalIdx;
+   382→  while (cur !== -1) {
+   383→    _pmMarks[cur] = 1;
+   384→    cur = _pmParent[cur];
+   385→  }
+   386→  return _pmMarks;
+   387→}
+   388→
+   389→/* ============ 置换表与启发 ============ */
+   390→
+   391→const TT_EXACT = 0;
+   392→const TT_LOWER = 1; // score ≥ beta 截断（下界）
+   393→const TT_UPPER = 2; // score ≤ alpha（上界）
+   394→
+   395→interface TtEntry {
+   396→  hi: number;
+   397→  depth: number;
+   398→  score: number;
+   399→  flag: number;
+   400→  best: number; // 着法编码（排序用）
+   401→}
+   402→
+   403→interface SearchCtx {
+   404→  tt: Map<number, TtEntry>;
+   405→  killers: Int32Array; // 每层 2 个杀手着法编码
+   406→  history: Float64Array; // 挡板历史启发分
+   407→  deadline: number;
+   408→  start: number;
+   409→  nodes: number;
+   410→  params: LevelParams;
+   411→  wallPly: number[]; // 搜索路径上放板所处的层（断路归责用）
+   412→}
+   413→
+   414→class SearchAbort extends Error {}
+   415→const ABORT = new SearchAbort();
+   416→
+   417→interface Cand {
+   418→  code: number;
+   419→  payload: MovePayload;
+   420→  score: number;
+   421→}
+   422→
+   423→function pawnCode(to: Vec, size: number): number {
+   424→  return PAWN_CODE_BASE + to.y * size + to.x;
+   425→}
+   426→
+   427→function wallCode(x: number, y: number, o: Orientation, size: number): number {
+   428→  return (y * (size - 1) + x) * 2 + (o === "h" ? 0 : 1);
+   429→}
+   430→
+   431→/* ============ 候选生成 ============ */
+   432→
+   433→function genCandidates(
+   434→  c: Core,
+   435→  p: Player,
+   436→  ctx: SearchCtx | null,
+   437→  ply: number,
+   438→  strict: boolean,
+   439→  wallLimit: number,
+   440→): Cand[] {
+   441→  const out: Cand[] = [];
+   442→  const N = c.size;
+   443→  const W = N - 1;
+   444→  const lastA = W - 1;
+   445→  const me = p === "A" ? c.posA : c.posB;
+   446→  const op = p === "A" ? c.posB : c.posA;
+   447→  const goal = goalRow(p, N);
+   448→
+   449→  /* 棋子着法：朝目标优先，跳子加分 */
+   450→  for (const to of coreLegalPawnMoves(c, p)) {
+   451→    const toward = Math.abs(me.y - goal) - Math.abs(to.y - goal);
+   452→    const jump = Math.abs(to.x - me.x) + Math.abs(to.y - me.y) >= 2 ? 1 : 0;
+   453→    out.push({
+   454→      code: pawnCode(to, N),
+   455→      payload: { type: "pawn", from: { x: me.x, y: me.y }, to: { x: to.x, y: to.y } },
+   456→      score: toward * 12 + jump * 8,
+   457→    });
+   458→  }
+   459→
+   460→  const wallsLeft = p === "A" ? c.wallsA : c.wallsB;
+   461→  if (wallsLeft <= 0) return out.sort((a, b) => b.score - a.score);
+   462→
+   463→  /* 对手最短路格点标记（贴近即高优先） */
+   464→  let pathMarks: Uint8Array | null = null;
+   465→  if (ctx) pathMarks = corePathMarks(c, opponent(p));
+   466→
+   467→  const seen = new Set<number>();
+   468→  const consider = (x: number, y: number, o: Orientation, base: number) => {
+   469→    if (x < 0 || y < 0 || x > lastA || y > lastA) return;
+   470→    const code = wallCode(x, y, o, N);
+   471→    if (seen.has(code)) return;
+   472→    seen.add(code);
+   473→    /* 冲突快查（重叠/十字交叉） */
+   474→    if (o === "h") {
+   475→      if (c.h[y * W + x]) return;
+   476→      if (x > 0 && c.h[y * W + x - 1]) return;
+   477→      if (x < lastA && c.h[y * W + x + 1]) return;
+   478→      if (c.v[y * W + x]) return;
+   479→    } else {
+   480→      if (c.v[y * W + x]) return;
+   481→      if (y > 0 && c.v[(y - 1) * W + x]) return;
+   482→      if (y < lastA && c.v[(y + 1) * W + x]) return;
+   483→      if (c.h[y * W + x]) return;
+   484→    }
+   485→    let score = base;
+   486→    if (pathMarks) {
+   487→      let near = false;
+   488→      for (let dx = -1; dx <= 1 && !near; dx++) {
+   489→        for (let dy = -1; dy <= 1; dy++) {
+   490→          const cx = x + dx;
+   491→          const cy = y + dy;
+   492→          if (cx < 0 || cy < 0 || cx >= N || cy >= N) continue;
+   493→          if (pathMarks[cy * N + cx]) {
+   494→            near = true;
+   495→            break;
+   496→          }
+   497→        }
+   498→      }
+   499→      if (near) score += 30;
+   500→    }
+   501→    if (ctx) {
+   502→      if (ply < MAX_PLY && (ctx.killers[ply * 2] === code || ctx.killers[ply * 2 + 1] === code)) {
+   503→        score += 55;
+   504→      }
+   505→      if (code < WALL_CODE_SPACE) score += Math.min(40, ctx.history[code] / 8);
+   506→    }
+   507→    out.push({ code, payload: { type: "wall", wall: { x, y, o, by: p } }, score });
+   508→  };
+   509→
+   510→  /* 对手周边窗口（两种朝向） */
+   511→  for (let dx = -2; dx <= 2; dx++) {
+   512→    for (let dy = -2; dy <= 2; dy++) {
+   513→      const bx = op.x + dx;
+   514→      const by = op.y + dy;
+   515→      const base = Math.abs(dx) <= 1 && Math.abs(dy) <= 1 ? 6 : 2;
+   516→      consider(bx, by, "h", base);
+   517→      consider(bx, by, "v", base);
+   518→    }
+   519→  }
+   520→  /* 己方走廊（防贴身封路的自卫板） */
+   521→  for (let dx = -1; dx <= 1; dx++) {
+   522→    consider(me.x + dx, me.y - 2, "h", 4);
+   523→    consider(me.x + dx, me.y + 2, "h", 4);
+   524→  }
+   525→  /* 对手终点行前沿（常见刀口） */
+   526→  const opGoal = goalRow(opponent(p), N);
+   527→  for (let dx = -2; dx <= 2; dx++) {
+   528→    consider(op.x + dx, opGoal === 0 ? 0 : N - 2, "h", 3);
+   529→  }
+   530→
+   531→  let walls: Cand[] = [];
+   532→  const pawns: Cand[] = [];
+   533→  for (const cd of out) {
+   534→    if (cd.payload.type === "wall") walls.push(cd);
+   535→    else pawns.push(cd);
+   536→  }
+   537→  walls.sort((a, b) => b.score - a.score);
+   538→
+   539→  if (strict) {
+   540→    /* 根节点：探针验证（不断路）+ 真实增益重排 */
+   541→    const myD = coreDist(c, p);
+   542→    const opD = coreDist(c, opponent(p));
+   543→    const probed: Cand[] = [];
+   544→    let kept = 0;
+   545→    for (const w of walls) {
+   546→      if (kept >= wallLimit) break;
+   547→      const wl = (w.payload as WallPayload).wall;
+   548→      const probe = coreProbeWall(c, wl.x, wl.y, wl.o);
+   549→      if (probe.pathCut) continue;
+   550→      const newMyD = p === "A" ? probe.dA : probe.dB;
+   551→      const newOpD = p === "A" ? probe.dB : probe.dA;
+   552→      w.score = w.score + (newOpD - opD) * 6 - (newMyD - myD) * 6;
+   553→      probed.push(w);
+   554→      kept++;
+   555→    }
+   556→    probed.sort((a, b) => b.score - a.score);
+   557→    walls = probed;
+   558→  } else {
+   559→    walls = walls.slice(0, wallLimit);
+   560→  }
+   561→
+   562→  const all = [...walls, ...pawns];
+   563→  all.sort((a, b) => b.score - a.score);
+   564→  return all;
+   565→}
+   566→
+   567→/* ============ 评估 ============ */
+   568→
+   569→/* 断路局面（搜索内试放所致，真实规则不可达）：断路必由放板造成——
+   570→ * 归罪于搜索路径上最后一位放板者（而非可能无事的最后行棋方）。
+   571→ * 根局面合法，故断路时 wallPly 栈必非空。 */
+   572→function cutBlame(me: Player, ply: number, ctx: SearchCtx): number {
+   573→  const lastWallPly = ctx.wallPly.length > 0 ? ctx.wallPly[ctx.wallPly.length - 1] : -1;
+   574→  const placer = lastWallPly % 2 === 0 ? me : opponent(me);
+   575→  const dist = EVAL_WIN - ply;
+   576→  return placer === me ? -dist : dist;
+   577→}
+   578→
+   579→function evaluate(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
+   580→  const dA = coreDist(c, "A");
+   581→  const dB = coreDist(c, "B");
+   582→  if (dA === 0) return me === "A" ? EVAL_WIN - ply : -(EVAL_WIN - ply);
+   583→  if (dB === 0) return me === "B" ? EVAL_WIN - ply : -(EVAL_WIN - ply);
+   584→  if (dA < 0 || dB < 0) return cutBlame(me, ply, ctx0);
+   585→
+   586→  const myD = me === "A" ? dA : dB;
+   587→  const opD = me === "A" ? dB : dA;
+   588→  const myWalls = me === "A" ? c.wallsA : c.wallsB;
+   589→  const opWalls = me === "A" ? c.wallsB : c.wallsA;
+   590→
+   591→  /* —— 经典三项：路径差 + 板差 + 机动差（系数全对称，无座位偏向）—— */
+   592→  let score = (opD - myD) + 0.3 * (myWalls - opWalls) + 0.1 * (coreLegalPawnMoves(c, me).length - coreLegalPawnMoves(c, opponent(me)).length);
+   593→
+   594→  /* 余板潜在拉长（座位对称、双方同享同一交换模型）：净拉长 0.35 步/板，上限 2 */
+   595→  score -= Math.min(opWalls * 0.35, 2) - Math.min(myWalls * 0.35, 2);
+   596→
+   597→  /* 陷阱惩罚：活字被围进死巷（≤3 着）扣分，防止走进正在收拢的笼子（对称） */
+   598→  const mobMe = coreLegalPawnMoves(c, me).length;
+   599→  const mobOp = coreLegalPawnMoves(c, opponent(me)).length;
+   600→  const trapPen = (mob: number) => (mob <= 3 ? (4 - mob) * 0.5 : 0);
+   601→  score += trapPen(mobOp) - trapPen(mobMe);
+   602→
+   603→  return score;
+   604→}
+   605→
+   606→/* 双方挡板耗尽 → 纯竞速，精确判胜（无需搜索） */
+   607→function raceEval(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
+   608→  const dA = coreDist(c, "A");
+   609→  const dB = coreDist(c, "B");
+   610→  if (dA === 0) return me === "A" ? EVAL_WIN - ply : -(EVAL_WIN - ply);
+   611→  if (dB === 0) return me === "B" ? EVAL_WIN - ply : -(EVAL_WIN - ply);
+   612→  if (dA < 0 || dB < 0) return cutBlame(me, ply, ctx0);
+   613→  const myD = me === "A" ? dA : dB;
+   614→  const opD = me === "A" ? dB : dA;
+   615→  if (myD !== opD) {
+   616→    return myD < opD ? EVAL_WIN - ply - myD : -(EVAL_WIN - ply - opD);
+   617→  }
+   618→  const mover = ply % 2 === 0 ? me : opponent(me);
+   619→  return mover === me ? EVAL_WIN - ply - myD : -(EVAL_WIN - ply - opD);
+   620→}
+   621→
+   622→/* ============ α-β 搜索（固定视角 + TT + 杀手/历史启发） ============ */
+   623→
+   624→function noteCutoff(ctx: SearchCtx, ply: number, code: number, depth: number) {
+   625→  if (code >= WALL_CODE_SPACE || ply >= MAX_PLY) return;
+   626→  ctx.history[code] += depth * depth;
+   627→  if (ctx.history[code] > 1e6) ctx.history[code] = 1e6;
+   628→  const k0 = ctx.killers[ply * 2];
+   629→  if (k0 !== code) {
+   630→    ctx.killers[ply * 2 + 1] = k0;
+   631→    ctx.killers[ply * 2] = code;
+   632→  }
+   633→}
+   634→
+   635→function ttStore(
+   636→  ctx: SearchCtx,
+   637→  key: number,
+   638→  hi: number,
+   639→  depth: number,
+   640→  score: number,
+   641→  alphaOrig: number,
+   642→  beta: number,
+   643→  bestCode: number,
+   644→) {
+   645→  if (Math.abs(score) > EVAL_WIN / 2) return; // 杀着分含距离信息，不入表
+   646→  if (ctx.tt.size > 150000) ctx.tt.clear();
+   647→  const flag = score <= alphaOrig ? TT_UPPER : score >= beta ? TT_LOWER : TT_EXACT;
+   648→  ctx.tt.set(key, { hi: hi >>> 0, depth, score, flag, best: bestCode });
+   649→}
+   650→
+   651→function alphabeta(
+   652→  c: Core,
+   653→  ply: number,
+   654→  depth: number,
+   655→  alpha: number,
+   656→  beta: number,
+   657→  me: Player,
+   658→  ctx: SearchCtx,
+   659→): number {
+   660→  ctx.nodes++;
+   661→  if ((ctx.nodes & 255) === 0 && Date.now() > ctx.deadline) throw ABORT;
+   662→
+   663→  /* 纯竞速终局：任何深度直接精确判胜 */
+   664→  if (c.wallsA === 0 && c.wallsB === 0) return raceEval(c, me, ply, ctx);
+   665→
+   666→  const alphaOrig = alpha;
+   667→  const key = c.hashLo >>> 0;
+   668→  let ttBestCode = -1;
+   669→  const entry = ctx.tt.get(key);
+   670→  if (entry && entry.hi === (c.hashHi >>> 0)) {
+   671→    ttBestCode = entry.best;
+   672→    if (entry.depth >= depth) {
+   673→      if (entry.flag === TT_EXACT) return entry.score;
+   674→      if (entry.flag === TT_LOWER && entry.score >= beta) return entry.score;
+   675→      if (entry.flag === TT_UPPER && entry.score <= alpha) return entry.score;
+   676→    }
+   677→  }
+   678→
+   679→  if (depth <= 0) return evaluate(c, me, ply, ctx);
+   680→
+   681→  const p = ply % 2 === 0 ? me : opponent(me);
+   682→  let cands = genCandidates(c, p, ctx, ply, false, ctx.params.wallLimit);
+   683→  if (cands.length === 0) return evaluate(c, me, ply, ctx);
+   684→
+   685→  if (ttBestCode >= 0) {
+   686→    const i = cands.findIndex((cd) => cd.code === ttBestCode);
+   687→    if (i > 0) {
+   688→      const pick = cands[i];
+   689→      cands.splice(i, 1);
+   690→      cands.unshift(pick);
+   691→    }
+   692→  }
+   693→
+   694→  if (p === me) {
+   695→    let best = -Infinity;
+   696→    let bestCode = -1;
+   697→    for (const cand of cands) {
+   698→      let val: number;
+   699→      if (cand.payload.type === "pawn") {
+   700→        const from = p === "A" ? { ...c.posA } : { ...c.posB };
+   701→        applyPawnC(c, p, cand.payload.to);
+   702→        val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+   703→        undoPawnC(c, p, from);
+   704→      } else if (cand.payload.type === "wall") {
+   705→        const w = cand.payload.wall;
+   706→        ctx.wallPly.push(ply);
+   707→        applyWallC(c, p, w.x, w.y, w.o);
+   708→        val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+   709→        undoWallC(c, p, w.x, w.y, w.o);
+   710→        ctx.wallPly.pop();
+   711→      } else {
+   712→        continue; // 候选只含棋子/挡板；防御性跳过
+   713→      }
+   714→      if (val > best) {
+   715→        best = val;
+   716→        bestCode = cand.code;
+   717→      }
+   718→      if (best > alpha) alpha = best;
+   719→      if (alpha >= beta) {
+   720→        if (cand.payload.type === "wall") noteCutoff(ctx, ply, cand.code, depth);
+   721→        break;
+   722→      }
+   723→    }
+   724→    ttStore(ctx, key, c.hashHi, depth, best, alphaOrig, beta, bestCode);
+   725→    return best;
+   726→  } else {
+   727→    let best = Infinity;
+   728→    let bestCode = -1;
+   729→    for (const cand of cands) {
+   730→      let val: number;
+   731→      if (cand.payload.type === "pawn") {
+   732→        const from = p === "A" ? { ...c.posA } : { ...c.posB };
+   733→        applyPawnC(c, p, cand.payload.to);
+   734→        val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+   735→        undoPawnC(c, p, from);
+   736→      } else if (cand.payload.type === "wall") {
+   737→        const w = cand.payload.wall;
+   738→        ctx.wallPly.push(ply);
+   739→        applyWallC(c, p, w.x, w.y, w.o);
+   740→        val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+   741→        undoWallC(c, p, w.x, w.y, w.o);
+   742→        ctx.wallPly.pop();
+   743→      } else {
+   744→        continue; // 候选只含棋子/挡板；防御性跳过
+   745→      }
+   746→      if (val < best) {
+   747→        best = val;
+   748→        bestCode = cand.code;
+   749→      }
+   750→      if (best < beta) beta = best;
+   751→      if (alpha >= beta) {
+   752→        if (cand.payload.type === "wall") noteCutoff(ctx, ply, cand.code, depth);
+   753→        break;
+   754→      }
+   755→    }
+   756→    ttStore(ctx, key, c.hashHi, depth, best, alphaOrig, beta, bestCode);
+   757→    return best;
+   758→  }
+   759→}
+   760→
+   761→/* ============ 搜索入口 ============ */
+   762→
+   763→function searchMove(state: GameState, params: LevelParams): MovePayload | null {
+   764→  const me = state.turn;
+   765→  const c = toCore(state);
+   766→  const ctx: SearchCtx = {
+   767→    tt: new Map(),
+   768→    killers: new Int32Array(MAX_PLY * 2),
+   769→    history: new Float64Array(WALL_CODE_SPACE),
+   770→    deadline: Date.now() + params.budgetMs,
+   771→    start: Date.now(),
+   772→    nodes: 0,
+   773→    params,
+   774→    wallPly: [],
+   775→  };
+   776→
+   777→  let cands = genCandidates(c, me, ctx, 0, true, params.rootWallLimit);
+   778→  if (cands.length === 0) return null;
+   779→
+   780→  let bestPayload: MovePayload = cands[0].payload;
+   781→  let bestScore = -Infinity;
+   782→
+   783→  for (let depth = 2; depth <= params.maxDepth; depth++) {
+   784→    /* 迭代加深：上一轮最优置于队首 */
+   785→    cands = [
+   786→      ...cands.filter((x) => x.payload === bestPayload),
+   787→      ...cands.filter((x) => x.payload !== bestPayload),
+   788→    ];
+   789→    let localBest: MovePayload | null = null;
+   790→    let localScore = -Infinity;
+   791→    let alpha = -Infinity;
+   792→    let searched = 0;
+   793→    try {
+   794→      for (const cand of cands) {
+   795→        let val: number;
+   796→        if (cand.payload.type === "pawn") {
+   797→          const from = me === "A" ? { ...c.posA } : { ...c.posB };
+   798→          applyPawnC(c, me, cand.payload.to);
+   799→          val = alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx);
+   800→          undoPawnC(c, me, from);
+   801→        } else if (cand.payload.type === "wall") {
+   802→          const w = cand.payload.wall;
+   803→          ctx.wallPly.push(0);
+   804→          applyWallC(c, me, w.x, w.y, w.o);
+   805→          val = alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx);
+   806→          undoWallC(c, me, w.x, w.y, w.o);
+   807→          ctx.wallPly.pop();
+   808→        } else {
+   809→          continue; // 候选只含棋子/挡板；防御性跳过
+   810→        }
+   811→        searched++;
+   812→        if (val > localScore) {
+   813→          localScore = val;
+   814→          localBest = cand.payload;
+   815→        }
+   816→        if (localScore > alpha) alpha = localScore;
+   817→      }
+   818→    } catch (e) {
+   819→      if (e instanceof SearchAbort) {
+   820→        /* 深度未完成：仅首层（depth 2）采信部分结果 */
+   821→        if (depth === 2 && searched > 0 && localBest) {
+   822→          bestPayload = localBest;
+   823→          bestScore = localScore;
+   824→        }
+   825→        break;
+   826→      }
+   827→      throw e;
+   828→    }
+   829→    if (localBest) {
+   830→      bestPayload = localBest;
+   831→      bestScore = localScore;
+   832→    }
+   833→    if (bestScore > EVAL_WIN / 2) break; // 已见必胜
+   834→    const elapsed = Date.now() - ctx.start;
+   835→    if (elapsed > params.budgetMs) break;
+   836→    /* 时间外推：下一层开销约 3-5 倍，已用近半即收笔 */
+   837→    if (elapsed > params.budgetMs * 0.45) break;
+   838→  }
+   839→
+   840→  _lastStats.nodes = ctx.nodes;
+   841→  _lastStats.ttSize = ctx.tt.size;
+   842→  _lastStats.elapsedMs = Date.now() - ctx.start;
+   843→  return bestPayload;
+   844→}
+   845→
+   846→/* ============ 一档：学徒（启发式，保留笨拙的可爱） ============ */
+   847→
+   848→function inBoundsAnchor(x: number, y: number, size: number): boolean {
+   849→  return x >= 0 && x <= size - 2 && y >= 0 && y <= size - 2;
+   850→}
+   851→
+   852→function cloneState(state: GameState): GameState {
+   853→  return {
+   854→    ...state,
+   855→    posA: { ...state.posA },
+   856→    posB: { ...state.posB },
+   857→    walls: state.walls.map((w) => ({ ...w })),
+   858→    history: state.history.slice(),
+   859→  };
+   860→}
+   861→
+   862→function apprenticeMove(state: GameState): AiDecision {
+   863→  const N = boardSize(state);
+   864→  const me = state.turn;
+   865→  const op = opponent(me);
+   866→  const opPos = op === "A" ? state.posA : state.posB;
+   867→  const core = toCore(state);
+   868→  const myD = coreDist(core, me);
+   869→  const wallsLeft = me === "A" ? state.wallsA : state.wallsB;
+   870→
+   871→  /* 偶尔放板（16%）：在对手附近随机挑一块合法且不伤己路的挡板 */
+   872→  if (wallsLeft > 0 && Math.random() < 0.16) {
+   873→    for (let attempt = 0; attempt < 14; attempt++) {
+   874→      const x = opPos.x + Math.floor(Math.random() * 5) - 2;
+   875→      const y = opPos.y + Math.floor(Math.random() * 5) - 2;
+   876→      if (!inBoundsAnchor(x, y, N)) continue;
+   877→      const o: Orientation = Math.random() < 0.5 ? "h" : "v";
+   878→      if (wallConflicts(state.walls, x, y, o)) continue;
+   879→      const probe = coreProbeWall(core, x, y, o);
+   880→      if (probe.pathCut) continue;
+   881→      const newMyD = me === "A" ? probe.dA : probe.dB;
+   882→      if (newMyD > myD) continue; /* 学徒虽笨，不至于自断 */
+   883→      return {
+   884→        payload: { type: "wall", wall: { x, y, o, by: me } },
+   885→        label: "学徒随手排了一根铅条",
+   886→      };
+   887→    }
+   888→  }
+   889→
+   890→  /* 即胜优先 */
+   891→  const goal = goalRow(me, N);
+   892→  const legal = legalPawnMoves(state, me);
+   893→  const winStep = legal.find((v) => v.y === goal);
+   894→  if (winStep) {
+   895→    return {
+   896→      payload: {
+   897→        type: "pawn",
+   898→        from: me === "A" ? state.posA : state.posB,
+   899→        to: winStep,
+   900→      },
+   901→      label: "学徒摸到了终点",
+   902→    };
+   903→  }
+   904→  /* 最短路下一步（对手占位时交给合法跳子表兜底） */
+   905→  const step = shortestStepOnGrids(state, me);
+   906→  const from = from0(state, me);
+   907→  const target =
+   908→    step && legal.some((v) => v.x === step.x && v.y === step.y)
+   909→      ? step
+   910→      : pickToward(legal, from, goal) ?? legal[0];
+   911→  if (target) {
+   912→    return {
+   913→      payload: {
+   914→        type: "pawn",
+   915→        from: me === "A" ? state.posA : state.posB,
+   916→        to: { ...target },
+   917→      },
+   918→      label: "学徒循最短路径捡字",
+   919→    };
+   920→  }
+   921→  return fallbackDecision(state, me);
+   922→}
+   923→
+   924→/* 学徒用：在位图上求最短路首步（忽略对手占位的近似） */
+   925→function shortestStepOnGrids(state: GameState, p: Player): Vec | null {
+   926→  const N = boardSize(state);
+   927→  const grids = buildWallGrids(state.walls, N);
+   928→  const from = p === "A" ? state.posA : state.posB;
+   929→  const goal = goalRow(p, N);
+   930→  if (from.y === goal) return null;
+   931→  const dist = new Int16Array(N * N).fill(-1);
+   932→  const parent = new Int16Array(N * N).fill(-1);
+   933→  const start = from.y * N + from.x;
+   934→  dist[start] = 0;
+   935→  const queue: number[] = [start];
+   936→  let goalIdx = -1;
+   937→  let head = 0;
+   938→  while (head < queue.length) {
+   939→    const cur = queue[head++];
+   940→    const cx = cur % N;
+   941→    const cy = (cur - cx) / N;
+   942→    if (cy === goal) {
+   943→      goalIdx = cur;
+   944→      break;
+   945→    }
+   946→    const dirs: Array<[number, number]> = [
+   947→      [0, -1],
+   948→      [0, 1],
+   949→      [-1, 0],
+   950→      [1, 0],
+   951→    ];
+   952→    for (const [dx, dy] of dirs) {
+   953→      const nx = cx + dx;
+   954→      const ny = cy + dy;
+   955→      if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
+   956→      if (edgeBlockedG(grids, cx, cy, dx, dy)) continue;
+   957→      const ni = ny * N + nx;
+   958→      if (dist[ni] >= 0) continue;
+   959→      dist[ni] = dist[cur] + 1;
+   960→      parent[ni] = cur;
+   961→      queue.push(ni);
+   962→    }
+   963→  }
+   964→  if (goalIdx < 0) return null;
+   965→  let cur = goalIdx;
+   966→  while (parent[cur] !== start && parent[cur] !== -1) cur = parent[cur];
+   967→  if (parent[cur] !== start) return null;
+   968→  const x = cur % N;
+   969→  const y = (cur - x) / N;
+   970→  return { x, y };
+   971→}
+   972→
+   973→function from0(state: GameState, p: Player): Vec {
+   974→  return p === "A" ? state.posA : state.posB;
+   975→}
+   976→
+   977→/* 朝目标推进的首个合法步（兜底） */
+   978→function pickToward(legal: Vec[], from: Vec, goal: number): Vec | null {
+   979→  let best: Vec | null = null;
+   980→  let bestD = Infinity;
+   981→  for (const v of legal) {
+   982→    const d = Math.abs(v.y - goal);
+   983→    if (d < bestD) {
+   984→      bestD = d;
+   985→      best = v;
+   986→    }
+   987→  }
+   988→  void from;
+   989→  return best;
+   990→}
+   991→
+   992→/* ============ 兜底 ============ */
+   993→
+   994→function fallbackDecision(state: GameState, me: Player): AiDecision {
+   995→  const N = boardSize(state);
+   996→  const moves = legalPawnMoves(state, me);
+   997→  if (moves.length > 0) {
+   998→    return {
+   999→      payload: {
+  1000→        type: "pawn",
+  1001→        from: me === "A" ? state.posA : state.posB,
+  1002→        to: moves[0],
+  1003→      },
+  1004→      label: "落子",
+  1005→    };
+  1006→  }
+  1007→  const wallsLeft = me === "A" ? state.wallsA : state.wallsB;
+  1008→  if (wallsLeft > 0) {
+  1009→    for (let x = 0; x <= N - 2; x++) {
+  1010→      for (let y = 0; y <= N - 2; y++) {
+  1011→        for (const o of ["h", "v"] as Orientation[]) {
+  1012→          if (checkWall(state, x, y, o, me).ok) {
+  1013→            return {
+  1014→              payload: { type: "wall", wall: { x, y, o, by: me } },
+  1015→              label: "放板",
+  1016→            };
+  1017→          }
+  1018→        }
+  1019→      }
+  1020→    }
+  1021→  }
+  1022→  return {
+  1023→    payload: { type: "pawn", from: state.posA, to: state.posA },
+  1024→    label: "无着可行",
+  1025→  };
+  1026→}
+  1027→
+  1028→/* ============ 入口 ============ */
+  1029→
+  1030→const WALL_LABEL: Record<AiLevel, string> = {
+  1031→  1: "学徒随手排了一根铅条",
+  1032→  2: "排字师延长了你的归途",
+  1033→  3: "总编落下一道版式",
+  1034→  4: "社长批下一道终审版式",
+  1035→};
+  1036→
+  1037→const PAWN_LABEL: Record<AiLevel, string> = {
+  1038→  1: "学徒循最短路径捡字",
+  1039→  2: "排字师沿最短路赶稿",
+  1040→  3: "总编审定了去路",
+  1041→  4: "社长亲自排定了去路",
+  1042→};
+  1043→
+  1044→const WIN_LABEL: Record<AiLevel, string> = {
+  1045→  1: "学徒摸到了终点",
+  1046→  2: "排字师一步定版",
+  1047→  3: "总编拍板收官",
+  1048→  4: "社长落锤定音",
+  1049→};
+  1050→
+  1051→export function computeAiMove(
+  1052→  state: GameState,
+  1053→  level: AiLevel,
+  1054→  opts?: { budgetMs?: number },
+  1055→): AiDecision | null {
+  1056→  if (state.winner) return null;
+  1057→  const s = cloneState(state);
+  1058→  const me = s.turn;
+  1059→  try {
+  1060→    /* 即胜着：任何档位都不放过 */
+  1061→    const N = boardSize(s);
+  1062→    const goal = goalRow(me, N);
+  1063→    const winNow = legalPawnMoves(s, me).find((v) => v.y === goal);
+  1064→    if (winNow) {
+  1065→      return {
+  1066→        payload: {
+  1067→          type: "pawn",
+  1068→          from: me === "A" ? s.posA : s.posB,
+  1069→          to: { ...winNow },
+  1070→        },
+  1071→        label: WIN_LABEL[level],
+  1072→      };
+  1073→    }
+  1074→    if (level === 1) return apprenticeMove(s);
+  1075→
+  1076→    const params = levelParams(level, N);
+  1077→    const cap = opts?.budgetMs;
+  1078→    const effective = cap != null ? Math.min(params.budgetMs, cap) : params.budgetMs;
+  1079→    const payload = searchMove(s, { ...params, budgetMs: effective });
+  1080→    if (payload) {
+  1081→      const label =
+  1082→        payload.type === "wall" ? WALL_LABEL[level] : PAWN_LABEL[level];
+  1083→      return { payload, label };
+  1084→    }
+  1085→    return fallbackDecision(s, me);
+  1086→  } catch (e) {
+  1087→    console.error("AI 计算异常，使用兜底", e);
+  1088→    return fallbackDecision(s, s.turn);
+  1089→  }
+  1090→}
+  1091→
+  1092→/* 供测试与调试：上一次搜索的规模统计 */
+  1093→const _lastStats = { nodes: 0, ttSize: 0, depth: 0, elapsedMs: 0 };
+  1094→export function lastSearchStats() {
+  1095→  return { ..._lastStats };
+  1096→}
+  1097→

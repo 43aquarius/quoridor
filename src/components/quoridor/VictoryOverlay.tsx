@@ -8,8 +8,9 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Archive, ImageDown, RotateCcw, ListOrdered } from "lucide-react";
 import { useQuoridor } from "@/store/game-store";
-import { AI_PROFILES, skinById } from "@/lib/game/types";
+import { AI_PROFILES, PLAYER4_COLORS, PLAYER_CN, skinById } from "@/lib/game/types";
 import { playStamp } from "@/lib/game/sounds";
+import { clearIdentity } from "@/lib/online/client";
 import { Button } from "@/components/ui/button";
 import { PosterModal } from "./PosterModal";
 import type { ArchiveEntry } from "@/lib/game/archive";
@@ -23,6 +24,7 @@ export function VictoryOverlay() {
   const saveToArchive = useQuoridor((s) => s.saveToArchive);
   const startGame = useQuoridor((s) => s.startGame);
   const setView = useQuoridor((s) => s.setView);
+  const setOnline = useQuoridor((s) => s.setOnline);
   const openPoster = useQuoridor((s) => s.openPoster);
   const [saved, setSaved] = useState<ArchiveEntry | null>(null);
 
@@ -36,10 +38,22 @@ export function VictoryOverlay() {
   if (!state || !state.winner) return null;
 
   const winner = state.winner;
-  const winnerColor = winner === "A" ? "var(--qa)" : "var(--qb)";
+  const four = state.playerCount === 4;
+  const seatConfig = useQuoridor.getState().seatConfig;
+  const online = useQuoridor.getState().online;
+  const winnerColor = four ? PLAYER4_COLORS[winner] : winner === "A" ? "var(--qa)" : "var(--qb)";
   const sk = skinById(skin);
-  const winnerName =
-    winner === "A"
+  const winnerHex = four ? PLAYER4_COLORS[winner] : winner === "A" ? sk.a : sk.b;
+  const winnerName = four
+    ? (() => {
+        const sc = seatConfig?.[winner];
+        if (sc?.kind === "ai") return `${AI_PROFILES[sc.level].name}（${PLAYER_CN[winner]}）`;
+        const os = online?.seats?.find((s) => s.player === winner);
+        if (os?.isAi && os.aiLevel) return `${AI_PROFILES[os.aiLevel as 1 | 2 | 3 | 4].name}（${PLAYER_CN[winner]}）`;
+        if (mode === "online" && online) return online.myPlayer === winner ? `你（${PLAYER_CN[winner]}）` : `棋友（${PLAYER_CN[winner]}）`;
+        return `真人（${PLAYER_CN[winner]}）`;
+      })()
+    : winner === "A"
       ? mode === "ai"
         ? "你（甲）"
         : "甲"
@@ -48,7 +62,44 @@ export function VictoryOverlay() {
         : mode === "online"
           ? "对手（乙）"
           : "乙";
-  const reason = state.winReason === "resign" ? "认输收束" : "抵达底线";
+  const reason =
+    state.winReason === "resign"
+      ? four
+        ? "众席认输 · 末位收笔"
+        : "认输收束"
+      : state.winReason === "timeout"
+        ? four
+          ? "众席超时出局 · 末位收笔"
+          : "超时判负"
+        : state.winReason === "last"
+          ? "众席出局 · 末位收笔"
+          : "抵达底线";
+
+  /* 战绩行：四人局逐席展示挡板用量 / 归途峰值 */
+  const statItems: Array<{ k: string; v: string }> = [
+    { k: "总手数", v: `${state.history.length} 手` },
+    { k: "全局用时", v: `${Math.round((Date.now() - meta.startedAt) / 1000)} 秒` },
+  ];
+  if (four) {
+    const wallLine = ["A", "B", "C", "D"]
+      .map((p) => {
+        const used = state.wallsStart - (p === "A" ? state.wallsA : p === "B" ? state.wallsB : p === "C" ? (state.wallsC ?? 0) : (state.wallsD ?? 0));
+        return `${PLAYER_CN[p]} ${used}`;
+      })
+      .join(" / ");
+    const pathLine = ["A", "B", "C", "D"]
+      .map((p) => {
+        const mp = p === "A" ? meta.maxPathA : p === "B" ? meta.maxPathB : p === "C" ? (meta.maxPathC ?? 0) : (meta.maxPathD ?? 0);
+        return `${PLAYER_CN[p]} ${mp}`;
+      })
+      .join(" / ");
+    statItems.push({ k: "挡板用量", v: wallLine }, { k: "最远归途", v: pathLine });
+  } else {
+    statItems.push(
+      { k: "挡板用量", v: `甲 ${state.wallsStart - state.wallsA} / 乙 ${state.wallsStart - state.wallsB}` },
+      { k: "最远归途", v: `甲 ${meta.maxPathA} 步 / 乙 ${meta.maxPathB} 步` },
+    );
+  }
 
   const handleSave = () => {
     const entry = saveToArchive();
@@ -58,6 +109,14 @@ export function VictoryOverlay() {
   const handlePoster = () => {
     const entry = saved ?? saveToArchive();
     if (entry) openPoster(entry);
+  };
+
+  /* 在线对局收束后的离场清理：清掉凭证与在线会话，
+   * 防止重进「在线对战」时凭旧身份回座、被已终的局面直接拉回结算画面。 */
+  const leaveEndedOnline = (target: "contents" | "room") => {
+    clearIdentity();
+    setOnline(null);
+    setView(target);
   };
 
   return (
@@ -87,7 +146,7 @@ export function VictoryOverlay() {
             style={{
               fontSize: "clamp(9rem, 34vmin, 22rem)",
               color: "var(--paper)",
-              textShadow: `6px 6px 0 ${winner === "A" ? sk.a : sk.b}`,
+              textShadow: `6px 6px 0 ${winnerHex}`,
             }}
           >
             胜
@@ -101,7 +160,7 @@ export function VictoryOverlay() {
             style={{
               width: "min(46vmin, 330px)",
               height: "min(46vmin, 330px)",
-              borderColor: winner === "A" ? sk.a : sk.b,
+              borderColor: winnerHex,
               transform: "rotate(-4deg)",
               mixBlendMode: "screen",
             }}
@@ -125,15 +184,7 @@ export function VictoryOverlay() {
           transition={{ delay: 1.05, duration: 0.7 }}
           className="mt-10 grid w-full max-w-2xl grid-cols-2 gap-x-10 gap-y-5 border-y border-paper/30 py-8 sm:grid-cols-4"
         >
-          {[
-            { k: "总手数", v: `${state.history.length} 手` },
-            { k: "全局用时", v: `${Math.round((Date.now() - meta.startedAt) / 1000)} 秒` },
-            { k: "挡板用量", v: `甲 ${10 - state.wallsA} / 乙 ${10 - state.wallsB}` },
-            {
-              k: "最远归途",
-              v: `甲 ${meta.maxPathA} 步 / 乙 ${meta.maxPathB} 步`,
-            },
-          ].map((it) => (
+          {statItems.map((it) => (
             <div key={it.k} className="flex flex-col gap-1">
               <dt className="font-mono text-[10px] tracking-[0.3em] text-paper/50">{it.k}</dt>
               <dd className="tabular text-lg font-bold text-paper">{it.v}</dd>
@@ -166,21 +217,24 @@ export function VictoryOverlay() {
           >
             <ImageDown className="h-4 w-4" aria-hidden />
             生成棋谱海报
-          </Button>
-          <Button
+          </Button>          <Button
             size="lg"
             variant="ghost"
             className="gap-2 font-mono text-sm text-paper/70 hover:bg-paper/10 hover:text-paper"
-            onClick={() => startGame(mode ?? "local", aiLevel ?? undefined)}
+            onClick={() =>
+              mode === "online"
+                ? leaveEndedOnline("room")
+                : startGame(mode ?? "local", aiLevel ?? undefined)
+            }
           >
             <RotateCcw className="h-4 w-4" aria-hidden />
-            再来一局
+            {mode === "online" ? "再开一间房" : "再来一局"}
           </Button>
           <Button
             size="lg"
             variant="ghost"
             className="gap-2 font-mono text-sm text-paper/70 hover:bg-paper/10 hover:text-paper"
-            onClick={() => setView("contents")}
+            onClick={() => (mode === "online" ? leaveEndedOnline("contents") : setView("contents"))}
           >
             <ListOrdered className="h-4 w-4" aria-hidden />
             返回目录

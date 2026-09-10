@@ -6,8 +6,8 @@
 "use client";
 
 import type { ArchiveEntry } from "@/lib/game/archive";
-import type { Skin, Vec, Wall } from "./types";
-import { cellName } from "./types";
+import type { Player, Skin, Vec, Wall } from "./types";
+import { PLAYER4_COLORS, PLAYER_CN, colLetter } from "./types";
 
 const W = 1440;
 const H = 2040;
@@ -75,7 +75,10 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
 
   const INK = "#1A1A1A";
   const PAPER = "#F5F2EA";
-  const colorOf = (p: "A" | "B") => (p === "A" ? skin.a : skin.b);
+  const four = entry.playerCount === 4;
+  const colorOf = (p: Player) =>
+    four ? (PLAYER4_COLORS[p] as string) : p === "A" ? skin.a : skin.b;
+  const N = Math.max(5, Math.min(13, entry.size ?? 9)); // 开本路数
 
   /* 纸底 + 颗粒 */
   ctx.fillStyle = PAPER;
@@ -101,14 +104,18 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
   const date = new Date(entry.date);
   const dateStr = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
   const modeStr =
-    entry.mode === "ai" ? `单人对弈 · ${entry.labelB}` : entry.mode === "local" ? "双人同屏" : "在线对战";
+    entry.mode === "ai" ? `单人对弈 · ${entry.labelB}` : entry.mode === "local" ? (four ? "四人围坐" : "双人同屏") : four ? "在线四人围桌" : "在线对战";
   ctx.textAlign = "right";
   ctx.font = `400 30px ${mono}`;
+  const seatLine = four
+    ? `${entry.labelA} ✕ ${entry.labelB} ✕ ${entry.labelC ?? "丙"} ✕ ${entry.labelD ?? "丁"}`
+    : `${entry.labelA} ✕ ${entry.labelB}`;
   const metaLines = [
     `NO. ${entry.id}`,
     `DATE ${dateStr}`,
     modeStr,
-    `${entry.labelA} ✕ ${entry.labelB}`,
+    seatLine,
+    `BOARD ${N}×${N} · ${entry.wallsPerPlayer ?? (four ? 5 : 10)} WALLS${four ? " ×4" : ""}`,
     `${entry.moveCount} MOVES`,
   ];
   metaLines.forEach((t, i) => {
@@ -127,8 +134,10 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
   /* —— 棋盘版画 —— */
   const BX = 220;
   const BY = 520;
-  const BS = 1000; // 9 格 × ~111
-  const cell = BS / 9;
+  const BS = 1000; // 版面固定边长，格距随开本缩放
+  const cell = BS / N;
+  const wallInset = Math.max(5, cell * 0.07);
+  const wallLen = 2 * cell - 2 * wallInset;
 
   // 套印错位阴影棋盘框
   ctx.save();
@@ -142,7 +151,7 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
   ctx.lineWidth = 2.5;
   ctx.strokeRect(BX, BY, BS, BS);
   ctx.lineWidth = 1.1;
-  for (let i = 1; i < 9; i++) {
+  for (let i = 1; i < N; i++) {
     ctx.beginPath();
     ctx.moveTo(BX + i * cell, BY);
     ctx.lineTo(BX + i * cell, BY + BS);
@@ -155,10 +164,10 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
 
   // 坐标
   ctx.fillStyle = INK;
-  ctx.font = `400 24px ${mono}`;
-  for (let i = 0; i < 9; i++) {
-    ctx.fillText("abcdefghi"[i], BX + i * cell + cell / 2 - 8, BY + BS + 34);
-    ctx.fillText(String(9 - i), BX - 30, BY + i * cell + cell / 2 + 8);
+  ctx.font = `400 ${N > 11 ? 20 : 24}px ${mono}`;
+  for (let i = 0; i < N; i++) {
+    ctx.fillText(colLetter(i, N), BX + i * cell + cell / 2 - 8, BY + BS + 34);
+    ctx.fillText(String(N - i), BX - 30, BY + i * cell + cell / 2 + 8);
   }
 
   // 行走路径叠印
@@ -191,7 +200,7 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
   ctx.globalAlpha = 1;
 
   // 挡板铅条
-  const TH = 15;
+  const TH = Math.max(10, Math.min(15, cell * 0.14));
   for (const m of entry.moves) {
     if (m.payload.type !== "wall") continue;
     const w = m.payload.wall as Wall;
@@ -201,20 +210,25 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
     // 错位阴影
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.4;
-    if (w.o === "h") roundRect(ctx, BX + w.x * cell + 7 + 3, BY + (w.y + 1) * cell - TH / 2 + 3, 2 * cell - 14, TH, TH / 2);
-    else roundRect(ctx, BX + (w.x + 1) * cell - TH / 2 + 3, BY + w.y * cell + 7 + 3, TH, 2 * cell - 14, TH / 2);
+    if (w.o === "h") roundRect(ctx, BX + w.x * cell + wallInset + 3, BY + (w.y + 1) * cell - TH / 2 + 3, wallLen, TH, TH / 2);
+    else roundRect(ctx, BX + (w.x + 1) * cell - TH / 2 + 3, BY + w.y * cell + wallInset + 3, TH, wallLen, TH / 2);
     ctx.fill();
     ctx.restore();
     ctx.fillStyle = color;
-    if (w.o === "h") roundRect(ctx, BX + w.x * cell + 7, BY + (w.y + 1) * cell - TH / 2, 2 * cell - 14, TH, TH / 2);
-    else roundRect(ctx, BX + (w.x + 1) * cell - TH / 2, BY + w.y * cell + 7, TH, 2 * cell - 14, TH / 2);
+    if (w.o === "h") roundRect(ctx, BX + w.x * cell + wallInset, BY + (w.y + 1) * cell - TH / 2, wallLen, TH, TH / 2);
+    else roundRect(ctx, BX + (w.x + 1) * cell - TH / 2, BY + w.y * cell + wallInset, TH, wallLen, TH / 2);
     ctx.fill();
   }
 
-  // 终局棋子（若记录到最终位置，则画在最后一步的 to 上）
-  const lastA = [...entry.moves].reverse().find((m) => m.player === "A" && m.payload.type === "pawn");
-  const lastB = [...entry.moves].reverse().find((m) => m.player === "B" && m.payload.type === "pawn");
-  const drawPawn = (pos: Vec | undefined, player: "A" | "B") => {
+  // 终局棋子（若记录到最终位置，则画在最后一步的 to 上；四人局四席）
+  const lastOf = (p: Player) => [...entry.moves].reverse().find((m) => m.player === p && m.payload.type === "pawn");
+  const lastA = lastOf("A");
+  const lastB = lastOf("B");
+  const lastC = four ? lastOf("C") : undefined;
+  const lastD = four ? lastOf("D") : undefined;
+  const pawnR = Math.max(22, Math.min(33, cell * 0.3));
+  const pawnFont = Math.max(24, Math.min(38, cell * 0.34));
+  const drawPawn = (pos: Vec | undefined, player: Player) => {
     if (!pos) return;
     const cx = BX + pos.x * cell + cell / 2;
     const cy = BY + pos.y * cell + cell / 2;
@@ -224,23 +238,27 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
     ctx.globalAlpha = 0.45;
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(cx + 4, cy + 4, 33, 0, Math.PI * 2);
+    ctx.arc(cx + 4, cy + 4, pawnR, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(cx, cy, 33, 0, Math.PI * 2);
+    ctx.arc(cx, cy, pawnR, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = PAPER;
-    ctx.font = `900 38px ${serif}`;
+    ctx.font = `900 ${pawnFont}px ${serif}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(player === "A" ? "甲" : "乙", cx, cy + 2);
+    ctx.fillText(PLAYER_CN[player], cx, cy + 2);
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
   };
   drawPawn(lastA?.payload.type === "pawn" ? lastA.payload.to : undefined, "A");
   drawPawn(lastB?.payload.type === "pawn" ? lastB.payload.to : undefined, "B");
+  if (four) {
+    drawPawn(lastC?.payload.type === "pawn" ? lastC.payload.to : undefined, "C");
+    drawPawn(lastD?.payload.type === "pawn" ? lastD.payload.to : undefined, "D");
+  }
 
   /* —— 着法长诗 —— */
   const poemTop = BY + BS + 120;
@@ -289,13 +307,34 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
 
   ctx.fillStyle = INK;
   ctx.font = `400 26px ${serif}`;
-  const winnerStr =
-    entry.winner === "A" ? `${entry.labelA} 胜` : entry.winner === "B" ? `${entry.labelB} 胜` : "未分胜负";
-  const reasonStr = entry.winReason === "resign" ? "（认输）" : entry.winReason === "goal" ? "（抵达底线）" : "";
-  ctx.fillText(`${winnerStr}${reasonStr} · ${entry.moveCount} 手 · 挡板 ${entry.wallsUsedA}✕${entry.wallsUsedB}`, 156, footerY - 14);
+  const labelOfWinner =
+    entry.winner === "A" ? entry.labelA : entry.winner === "B" ? entry.labelB : entry.winner === "C" ? (entry.labelC ?? "丙") : entry.winner === "D" ? (entry.labelD ?? "丁") : "";
+  const winnerStr = entry.winner ? `${labelOfWinner} 胜` : "未分胜负";
+  const reasonStr =
+    entry.winReason === "resign"
+      ? four
+        ? "（众席认输 · 末位）"
+        : "（认输）"
+      : entry.winReason === "timeout"
+        ? four
+          ? "（众席超时出局 · 末位）"
+          : "（超时判负）"
+        : entry.winReason === "last"
+          ? "（众席出局 · 末位）"
+          : entry.winReason === "goal"
+            ? "（抵达底线）"
+            : "";
+  const wallLine = four
+    ? `甲 ${entry.wallsUsedA} / 乙 ${entry.wallsUsedB} / 丙 ${entry.wallsUsedC ?? 0} / 丁 ${entry.wallsUsedD ?? 0}`
+    : `甲 ${entry.wallsUsedA} / 乙 ${entry.wallsUsedB}`;
+  ctx.fillText(
+    `${winnerStr}${reasonStr} · ${entry.moveCount} 手 · 开本 ${N}×${N} · 挡板 ${wallLine}`,
+    156,
+    footerY - 14,
+  );
   ctx.font = `400 22px ${mono}`;
   ctx.fillText(
-    `步步为营 QUORIDOR · 双色 RISOGRAPH 套印 ${skin.label} · 纸色 草浆纸白 № F5F2EA`,
+    `步步为营 QUORIDOR · ${four ? "四色" : "双色"} RISOGRAPH 套印 ${four ? "红·蓝·苔绿·墨黑" : skin.label} · 纸色 草浆纸白 № F5F2EA`,
     156,
     footerY + 22,
   );
@@ -311,8 +350,4 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
 export function posterFileName(entry: ArchiveEntry): string {
   const d = new Date(entry.date);
   return `quoridor-poster-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${entry.id}.png`;
-}
-
-export function cellLabel(v: Vec): string {
-  return cellName(v);
 }

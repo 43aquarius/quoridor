@@ -8,6 +8,19 @@ let workerBroken = false;
 let jobId = 0;
 const pending = new Map<number, { resolve: (d: AiDecision | null) => void }>();
 
+function workerTimeoutMs(level: AiLevel): number {
+  if (level >= 4) return 6500;
+  if (level === 3) return 3500;
+  return 2000;
+}
+
+/* 同步兜底的紧预算：Worker 不可用时避免长时间阻塞主线程 */
+function syncBudgetMs(level: AiLevel): number {
+  if (level >= 4) return 1200;
+  if (level === 3) return 900;
+  return 280;
+}
+
 function ensureWorker(): Worker | null {
   if (workerBroken) return null;
   if (worker) return worker;
@@ -53,7 +66,7 @@ export async function requestAiMove(
   const w = ensureWorker();
   if (!w) {
     // 同步兜底（仅低档位或 Worker 不可用时；总编同步计算也控制在 ~400ms 预算内）
-    return computeAiMove(state, level);
+    return computeAiMove(state, level, { budgetMs: syncBudgetMs(level) });
   }
   const id = ++jobId;
   return new Promise<AiDecision | null>((resolve) => {
@@ -61,9 +74,9 @@ export async function requestAiMove(
     const timer = setTimeout(() => {
       if (pending.has(id)) {
         pending.delete(id);
-        resolve(computeAiMove(state, level));
+        resolve(computeAiMove(state, level, { budgetMs: syncBudgetMs(level) }));
       }
-    }, 2500);
+    }, workerTimeoutMs(level));
     pending.set(id, {
       resolve: (d) => {
         clearTimeout(timer);

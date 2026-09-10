@@ -6,6 +6,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { useQuoridor } from "@/store/game-store";
+import { GithubMark, GITHUB_REPO_URL } from "./GithubMark";
 
 const CHARS = ["步", "步", "为", "营"];
 
@@ -142,13 +143,26 @@ export function HeroView() {
       </div>
 
       {/* 刊号式页脚 */}
-      <footer className="pointer-events-none absolute inset-x-0 bottom-8 px-8 sm:bottom-10">
+      <footer className="absolute inset-x-0 bottom-8 px-8 sm:bottom-10">
         <div className="mx-auto flex max-w-5xl flex-col items-center gap-1.5 border-t border-ink/50 pt-4 text-center font-mono text-[9px] leading-relaxed tracking-[0.2em] text-ink/60 sm:text-[10px]">
           <p>第壹卷第壹版 · MMXXVI 限量玖拾玖部</p>
           <p>字体 思源宋体 Noto Serif SC / IBM Plex Mono / Playfair Display · 纸色 草浆纸白 №F5F2EA</p>
           <p>
             双色 RISOGRAPH 套印 <span style={{ color: "var(--qa)" }}>■ 荧光红</span> ×{" "}
             <span style={{ color: "var(--qb)" }}>■ 钴蓝</span> · 步步为营编辑部 出品
+          </p>
+          <p className="mt-1">
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`开源仓库 GitHub（${GITHUB_REPO_URL}）`}
+              className="pointer-events-auto inline-flex items-center gap-1.5 text-ink/60 underline decoration-ink/30 underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
+            >
+              <GithubMark className="h-3 w-3" aria-hidden />
+              开源仓库 OPEN SOURCE · github.com/43aquarius/quoridor
+            </a>
           </p>
         </div>
       </footer>

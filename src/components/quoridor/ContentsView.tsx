@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Volume2, VolumeX, BookOpen } from "lucide-react";
 import { useQuoridor } from "@/store/game-store";
 import { SkinFilmStrip } from "./SkinFilmStrip";
+import { GithubLink } from "./GithubMark";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { View } from "@/store/game-store";
@@ -24,7 +25,7 @@ const TOC: TocItem[] = [
     idx: "01",
     title: "单人对弈",
     en: "SOLO — AGAINST THE DESK",
-    desc: "与编辑部过招：学徒 · 排字师 · 总编，三档职位任选。",
+    desc: "与编辑部过招：学徒 · 排字师 · 总编 · 社长，四档职位任选。",
     view: "setup",
     page: "Ⅰ",
   },
@@ -32,39 +33,46 @@ const TOC: TocItem[] = [
     idx: "02",
     title: "双人同屏",
     en: "TWO READERS, ONE BOARD",
-    desc: "一册棋盘，两副活字。回合切换时，纸面轻轻换页。",
-    view: "game",
+    desc: "一册棋盘，两副活字。先择开本再开局；回合切换时，纸面轻轻换页。",
+    view: "localsetup",
     page: "Ⅱ",
   },
   {
     idx: "03",
-    title: "在线对战",
-    en: "PLAY ACROSS THE MARGIN",
-    desc: "四位房间码开房对坐，实时同步；断线五分钟内可回座。",
-    view: "room",
+    title: "四人围坐",
+    en: "FOUR SEATS, ONE TABLE",
+    desc: "四副活字围一册棋盘，顺时针行棋、出局制；空座可交编辑部 AI 代打。",
+    view: "quadsetup",
     page: "Ⅲ",
   },
   {
     idx: "04",
-    title: "规则",
-    en: "EDITOR’S NOTE ON THE RULES",
-    desc: "编者按：关于行棋、挡板与跳子的全部排版纪律。",
-    view: "rules",
+    title: "在线对战",
+    en: "PLAY ACROSS THE MARGIN",
+    desc: "四位房间码开房对坐，实时同步；断线五分钟内可回座。支持双人与四人围桌。",
+    view: "room",
     page: "Ⅳ",
   },
   {
     idx: "05",
+    title: "规则",
+    en: "EDITOR’S NOTE ON THE RULES",
+    desc: "编者按：关于行棋、挡板与跳子的全部排版纪律。",
+    view: "rules",
+    page: "Ⅴ",
+  },
+  {
+    idx: "06",
     title: "棋谱档案馆",
     en: "THE ARCHIVE OF GAMES",
     desc: "历史对局的全宗卷宗，每一局是一页可翻的 spread。",
     view: "archive",
-    page: "Ⅴ",
+    page: "Ⅵ",
   },
 ];
 
 export function ContentsView() {
   const setView = useQuoridor((s) => s.setView);
-  const startGame = useQuoridor((s) => s.startGame);
   const hasSaved = useQuoridor((s) => s.hasSavedGame);
   const resumeSaved = useQuoridor((s) => s.resumeSaved);
   const discardSaved = useQuoridor((s) => s.discardSaved);
@@ -73,8 +81,7 @@ export function ContentsView() {
   const archive = useQuoridor((s) => s.archive);
 
   const go = (item: TocItem) => {
-    if (item.view === "game") startGame("local");
-    else setView(item.view);
+    setView(item.view);
   };
 
   return (
@@ -84,7 +91,7 @@ export function ContentsView() {
         <p className="mb-2 font-mono text-[10px] tracking-[0.5em] text-ink/55">TABLE OF CONTENTS</p>
         <div className="flex items-end justify-between border-b-2 border-ink pb-4">
           <h2 className="font-display text-5xl font-black leading-none text-ink sm:text-6xl">目 录</h2>
-          <p className="hidden font-west text-sm italic text-ink/60 sm:block">five chapters, one game</p>
+          <p className="hidden font-west text-sm italic text-ink/60 sm:block">six chapters, one game</p>
         </div>
       </header>
 
@@ -166,19 +173,22 @@ export function ContentsView() {
         ))}
       </nav>
 
-      {/* 页脚：色版 + 音效 */}
+      {/* 页脚：色版 + 音效 + 开源仓库 */}
       <footer className="mt-12 flex flex-wrap items-end justify-between gap-6 border-t border-ink/50 pt-6">
         <SkinFilmStrip />
-        <button
-          type="button"
-          onClick={toggleSound}
-          aria-pressed={soundOn}
-          aria-label={soundOn ? "关闭音效" : "开启音效"}
-          className="flex items-center gap-2 border border-ink px-4 py-2 font-mono text-[11px] tracking-[0.2em] text-ink transition-colors hover:bg-ink hover:text-paper"
-        >
-          {soundOn ? <Volume2 className="h-3.5 w-3.5" aria-hidden /> : <VolumeX className="h-3.5 w-3.5" aria-hidden />}
-          活版音效 {soundOn ? "ON" : "OFF"}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleSound}
+            aria-pressed={soundOn}
+            aria-label={soundOn ? "关闭音效" : "开启音效"}
+            className="flex items-center gap-2 border border-ink px-4 py-2 font-mono text-[11px] tracking-[0.2em] text-ink transition-colors hover:bg-ink hover:text-paper"
+          >
+            {soundOn ? <Volume2 className="h-3.5 w-3.5" aria-hidden /> : <VolumeX className="h-3.5 w-3.5" aria-hidden />}
+            活版音效 {soundOn ? "ON" : "OFF"}
+          </button>
+          <GithubLink label="开源 GITHUB" className="border border-ink px-4 py-2 tracking-[0.2em] hover:bg-ink hover:text-paper" />
+        </div>
       </footer>
     </section>
   );
