@@ -1,14 +1,15 @@
 "use client";
 
 /* 01 单人对弈 —— 编辑部四档职位：学徒 / 排字师 / 总编 / 社长。
- * 先选版式规格（棋盘尺寸 + 每方挡板数），再点选对手即开局：你执甲（红），先行。
+ * 先选版式规格（棋盘尺寸 + 每方挡板数），再择执子先后手，
+ * 最后点选对手即开局：先手执甲（红），后手执乙（蓝）。
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, PenLine, Scissors, Crown, Landmark } from "lucide-react";
 import { useQuoridor } from "@/store/game-store";
-import { AI_PROFILES, configLabel, recommendedWalls, timeLabel, type AiLevel } from "@/lib/game/types";
+import { AI_PROFILES, configLabel, recommendedWalls, timeLabel, type AiLevel, type Player } from "@/lib/game/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FormatPanel } from "./FormatPanel";
@@ -28,11 +29,29 @@ const STRENGTH: Record<AiLevel, { bars: number; note: string }> = {
   4: { bars: 4, note: "棋力 · 终审" },
 };
 
+const SEAT_OPTIONS: Array<{ seat: Player; title: string; sub: string; color: string; desc: string }> = [
+  {
+    seat: "A",
+    title: "先手 · 执甲",
+    sub: "RED · FIRST",
+    color: "var(--qa)",
+    desc: "荧光红铅字，自底边出发，先落第一子。",
+  },
+  {
+    seat: "B",
+    title: "后手 · 执乙",
+    sub: "BLUE · SECOND",
+    color: "var(--qb)",
+    desc: "钴蓝铅字，自顶边俯冲，后发制人。",
+  },
+];
+
 export function SetupView() {
   const startGame = useQuoridor((s) => s.startGame);
   const setView = useQuoridor((s) => s.setView);
   const config = useQuoridor((s) => s.config);
   const setConfig = useQuoridor((s) => s.setConfig);
+  const [seat, setSeat] = useState<Player>("A");
 
   const levels: AiLevel[] = [1, 2, 3, 4];
 
@@ -53,8 +72,7 @@ export function SetupView() {
           <span className="font-mono text-[10px] tracking-[0.4em] text-ink/50">CH.01</span>
         </div>
         <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink/70">
-          编辑部开放四个职位与你对坐。你执甲——荧光红、自底边出发、先行一步；
-          对手执乙，自顶边俯瞰你的归途。先择一版开本与棋钟，再选一位对手，翻开对局页。
+          编辑部开放四个职位与你对坐。先择一版开本与棋钟、选定执子先后手，再选一位对手，翻开对局页。
         </p>
       </header>
 
@@ -64,6 +82,50 @@ export function SetupView() {
       {/* 棋钟规格 */}
       <div className="mt-8">
         <ClockPanel />
+      </div>
+
+      {/* 执子先后手 */}
+      <div className="mt-8">
+        <p className="mb-3 font-mono text-[10px] tracking-[0.3em] text-ink/50">执子先后手 CHOOSE YOUR INK</p>
+        <div className="grid gap-4 sm:grid-cols-2" role="radiogroup" aria-label="执子先后手">
+          {SEAT_OPTIONS.map((o) => {
+            const active = seat === o.seat;
+            return (
+              <button
+                key={o.seat}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setSeat(o.seat)}
+                className={cn(
+                  "group flex items-center gap-4 border-2 bg-paper px-5 py-4 text-left transition-all duration-200",
+                  "focus-visible:outline-none focus-visible:-translate-y-0.5",
+                  active ? "border-ink" : "border-ink/30 hover:border-ink/60",
+                )}
+                style={{ boxShadow: active ? `4px 4px 0 ${o.color}` : undefined }}
+              >
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 shrink-0 items-center justify-center border"
+                  style={{
+                    borderColor: o.color,
+                    background: active ? o.color : "transparent",
+                    transition: "background 0.2s",
+                  }}
+                >
+                  {active && <span className="h-2.5 w-2.5 bg-paper" />}
+                </span>
+                <span className="flex-1">
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span className="font-display text-lg font-black text-ink">{o.title}</span>
+                    <span className="font-mono text-[9px] tracking-[0.25em] text-ink/45">{o.sub}</span>
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-ink/65">{o.desc}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <p className="mb-5 mt-8 font-mono text-[10px] tracking-[0.3em] text-ink/50">
@@ -81,7 +143,7 @@ export function SetupView() {
               initial={{ opacity: 0, y: 22 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 + i * 0.1, duration: 0.5 }}
-              onClick={() => startGame("ai", lv, { ...config, playerCount: 2 })}
+              onClick={() => startGame("ai", lv, { ...config, playerCount: 2 }, undefined, seat)}
               className={cn(
                 "group relative flex min-h-[260px] flex-col border-2 border-ink bg-paper p-6 text-left",
                 "transition-transform duration-200 hover:-translate-y-1.5 focus-visible:-translate-y-1.5 focus-visible:outline-none",

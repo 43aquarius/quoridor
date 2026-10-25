@@ -178,6 +178,7 @@ export function Sidebar({ onRefresh }: { onRefresh?: () => void }) {
   const online = useQuoridor((s) => s.online);
   const config = useQuoridor((s) => s.config);
   const seatConfig = useQuoridor((s) => s.seatConfig);
+  const playerSeat = useQuoridor((s) => s.playerSeat);
   const soundOn = useQuoridor((s) => s.soundOn);
   const toggleSound = useQuoridor((s) => s.toggleSound);
   const undo = useQuoridor((s) => s.undo);
@@ -235,8 +236,14 @@ export function Sidebar({ onRefresh }: { onRefresh?: () => void }) {
       if (mode === "online" && online) return online.myPlayer === p ? `你 · ${cn}` : `棋友 · ${cn}`;
       return `真人 · ${cn}`;
     }
-    if (p === "A") return mode === "ai" ? "你 · 甲" : "甲";
-    return mode === "ai" && aiLevel ? `${AI_PROFILES[aiLevel].name} · 乙` : mode === "online" ? `对手 · 乙${online && online.myPlayer === "B" ? "（你）" : ""}` : "乙";
+    if (p === "A") return mode === "ai" ? (playerSeat === "A" ? "你 · 甲（红）" : aiLevel ? `${AI_PROFILES[aiLevel].name} · 甲` : "甲") : "甲";
+    return mode === "ai" && aiLevel
+      ? playerSeat === "B"
+        ? "你 · 乙（蓝）"
+        : `${AI_PROFILES[aiLevel].name} · 乙`
+      : mode === "online"
+        ? `对手 · 乙${online && online.myPlayer === "B" ? "（你）" : ""}`
+        : "乙";
   };
 
   const paused = !!state.winner;

@@ -40,8 +40,10 @@ function series(name: string, a: AiLevel, b: AiLevel, n: number, capMs?: number)
 }
 
 const n = Number(process.env.LADDER_N ?? 4);
-console.log("=== 新 AI 阶梯（开局随机化 6 手，同级对弈异档） ===");
+const capEnv = Number(process.env.LADDER_CAP ?? 800);
+const cap = capEnv > 0 ? capEnv : undefined;
+console.log(`=== 新 AI 阶梯（开局随机化 6 手，同级对弈异档，预算 ${cap ? cap + "ms 封顶" : "全档默认"}） ===`);
 series("新L1 vs 新L2", 1, 2, n);
-series("新L2 vs 新L3", 2, 3, n, 800);
-series("新L3 vs 新L4", 3, 4, n, 800);
-series("新L2 vs 新L4", 2, 4, n, 800);
+series("新L2 vs 新L3", 2, 3, n, cap);
+series("新L3 vs 新L4", 3, 4, n, cap);
+series("新L2 vs 新L4", 2, 4, n, cap);

@@ -34,6 +34,7 @@ export function GameView() {
   const meta = useQuoridor((s) => s.meta);
   const online = useQuoridor((s) => s.online);
   const seatConfig = useQuoridor((s) => s.seatConfig);
+  const playerSeat = useQuoridor((s) => s.playerSeat);
   const setAiThinking = useQuoridor((s) => s.setAiThinking);
   const applyAiMove = useQuoridor((s) => s.applyAiMove);
   const { toast } = useToast();
@@ -55,15 +56,16 @@ export function GameView() {
   }, [state, meta.replayIndex]);
 
   /* AI 回合：思考延迟 + Worker 计算（高档位搜索耗时长，延迟相应缩短）
-   * 二人单机（ai）：对手乙；本地四人（local + seatConfig）：当前 AI 席位 */
+   * 二人单机（ai）：对手 = 非人类席位（playerSeat 的对家，先手/后手均可）；
+   * 本地四人（local + seatConfig）：当前 AI 席位 */
   const aiSeatLevel = useMemo(() => {
-    if (mode === "ai" && aiLevel && state && state.turn === "B" && state.playerCount === 2) return aiLevel;
+    if (mode === "ai" && aiLevel && state && state.turn !== playerSeat && state.playerCount === 2) return aiLevel;
     if (mode === "local" && four && state && seatConfig) {
       const sc = seatConfig[state.turn];
       if (sc?.kind === "ai") return sc.level;
     }
     return null;
-  }, [mode, aiLevel, state, four, seatConfig]);
+  }, [mode, aiLevel, state, four, seatConfig, playerSeat]);
 
   useEffect(() => {
     if (!aiSeatLevel || !state || meta.replayIndex != null) return;
@@ -102,14 +104,14 @@ export function GameView() {
 
   if (!state || !displayState) return null;
 
-  /* 当前行棋席位是否由本端操控（双人同屏=全真人；四人本地=该席非 AI；在线=轮到你且你未出局） */
+  /* 当前行棋席位是否由本端操控（双人同屏=全真人；四人本地=该席非 AI；单机=轮到人类席位；在线=轮到你且你未出局） */
   const humanControlsTurn =
     mode === "local"
       ? four
         ? !isSeatAi(seatConfig, state.turn)
         : true
       : mode === "ai"
-        ? state.turn === "A"
+        ? state.turn === playerSeat
         : mode === "online" && online
           ? online.phase === "playing" && state.turn === online.myPlayer
           : false;
@@ -122,7 +124,7 @@ export function GameView() {
 
   const modeLabel =
     mode === "ai" && aiLevel
-      ? `单人对弈 · 对手：${AI_PROFILES[aiLevel].name}`
+      ? `单人对弈 · 对手：${AI_PROFILES[aiLevel].name} · ${playerSeat === "A" ? "你执红先行" : "你执蓝后行"}`
       : mode === "local"
         ? four
           ? "四人围坐"

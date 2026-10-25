@@ -194,10 +194,10 @@ function writeLS(key: string, value: string) {
   }
 }
 
-function persistSaved(mode: GameMode | null, aiLevel: AiLevel | null, config: GameConfig | null, state: GameState | null, seatConfig?: SeatConfig | null) {
+function persistSaved(mode: GameMode | null, aiLevel: AiLevel | null, config: GameConfig | null, state: GameState | null, seatConfig?: SeatConfig | null, playerSeat?: Player | null) {
   if (typeof window === "undefined") return;
   if (mode && config && state && !state.winner) {
-    writeLS(LS_SAVED, JSON.stringify({ mode, aiLevel, config, state, seatConfig: seatConfig ?? null, savedAt: Date.now() }));
+    writeLS(LS_SAVED, JSON.stringify({ mode, aiLevel, config, state, seatConfig: seatConfig ?? null, playerSeat: playerSeat ?? "A", savedAt: Date.now() }));
   } else {
     try {
       localStorage.removeItem(LS_SAVED);
@@ -232,6 +232,7 @@ export interface QuoridorStore {
   soundOn: boolean;
   config: GameConfig; // 版式规格：棋盘尺寸 + 每方挡板数 + 席位数
   seatConfig: SeatConfig | null; // 本地四人局：各席真人 / AI 档位
+  playerSeat: Player; // 单人模式人类执哪方（A=先手红 / B=后手蓝；其余模式恒 A）
   archive: ArchiveEntry[];
   hasSavedGame: boolean;
   posterEntry: ArchiveEntry | null;
@@ -244,7 +245,7 @@ export interface QuoridorStore {
   toggleSound: () => void;
   setConfig: (c: Partial<GameConfig>) => void;
 
-  startGame: (mode: GameMode, aiLevel?: AiLevel, config?: Partial<GameConfig>, seatConfig?: SeatConfig) => void;
+  startGame: (mode: GameMode, aiLevel?: AiLevel, config?: Partial<GameConfig>, seatConfig?: SeatConfig, playerSeat?: Player) => void;
   resumeSaved: () => boolean;
   discardSaved: () => void;
 
@@ -357,6 +358,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
   posterEntry: null,
   posterOpen: false,
   seatConfig: null,
+  playerSeat: "A",
 
   commitLocal: (payload) => {
     const { state, meta } = get();
@@ -370,7 +372,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     }
     const next = r.state;
     updateAfterMove(get, set, next, elapsed);
-    persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig);
+    persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
     refreshHasSaved(set);
     return { ok: true };
   },
@@ -395,22 +397,24 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     set({ soundOn: next });
   },
 
-  startGame: (mode, aiLevel, config, seatConfig) => {
+  startGame: (mode, aiLevel, config, seatConfig, playerSeat) => {
     const cfg = normalizeConfig(config ?? get().config);
     const state = initialGame(cfg);
     const meta = initialMeta(cfg.size);
+    const seat = mode === "ai" ? (playerSeat ?? "A") : "A";
     writeLS(LS_CONFIG, JSON.stringify(cfg));
     set({
       mode,
       aiLevel: aiLevel ?? null,
       config: cfg,
       seatConfig: seatConfig ?? null,
+      playerSeat: seat,
       state,
       meta,
       online: null,
       view: "game",
     });
-    persistSaved(mode, aiLevel ?? null, cfg, state, seatConfig ?? null);
+    persistSaved(mode, aiLevel ?? null, cfg, state, seatConfig ?? null, seat);
     refreshHasSaved(set);
   },
 
@@ -423,6 +427,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
         aiLevel: AiLevel | null;
         config?: { size?: number; wallsPerPlayer?: number; playerCount?: number };
         seatConfig?: SeatConfig | null;
+        playerSeat?: Player;
         state: GameState;
       };
       if (!parsed?.state || parsed.state.winner) return false;
@@ -436,6 +441,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
         aiLevel: parsed.aiLevel ?? null,
         config: cfg,
         seatConfig: parsed.seatConfig ?? null,
+        playerSeat: parsed.mode === "ai" ? (parsed.playerSeat ?? "A") : "A",
         state,
         meta,
         view: "game",
@@ -496,7 +502,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     const next = r.state;
     updateAfterMove(get, set, next, elapsed);
     set({ meta: { ...get().meta, aiThinking: false, aiLabel: label ?? null } });
-    persistSaved(mode, get().aiLevel, get().config, next, get().seatConfig);
+    persistSaved(mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
     refreshHasSaved(set);
   },
 
@@ -507,7 +513,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     if (!r.ok || !r.state) return false;
     const next = r.state;
     updateAfterMove(get, set, next, elapsedMs);
-    persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig);
+    persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
     return true;
   },
 
@@ -518,7 +524,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     /* 四人局出局后棋局继续：重置回合计时并续存书签 */
     if (!next.winner) {
       set({ state: next, meta: { ...get().meta, aiThinking: false, turnStartedAt: Date.now() } });
-      persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig);
+      persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
     } else {
       set({ state: next, meta: { ...get().meta, aiThinking: false } });
       persistSaved(null, null, null, null);
@@ -531,7 +537,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     const next = applyTimeout(state, loser);
     if (!next.winner) {
       set({ state: next, meta: { ...get().meta, aiThinking: false, turnStartedAt: Date.now() } });
-      persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig);
+      persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
     } else {
       set({ state: next, meta: { ...get().meta, aiThinking: false } });
       persistSaved(null, null, null, null);
@@ -544,7 +550,7 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     const next = applyTimeout(state, loser);
     if (!next.winner) {
       set({ state: next, meta: { ...get().meta, aiThinking: false, turnStartedAt: Date.now() } });
-      persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig);
+      persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
     } else {
       set({ state: next, meta: { ...get().meta, aiThinking: false } });
       persistSaved(null, null, null, null);
@@ -607,9 +613,10 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
     if (history.length === 0) return;
     history = history.slice(0, -1);
     if (mode === "ai") {
-      // 撤到轮到人类（甲）为止：通常撤两手（AI 应手 + 你的上一手）
+      // 撤到轮到人类席位为止：通常撤两手（AI 应手 + 你的上一手）
+      const human = get().playerSeat;
       let probe = stateFromHistory(history, undefined, cfg);
-      while (probe.turn !== "A" && history.length > 0) {
+      while (probe.turn !== human && history.length > 0) {
         history = history.slice(0, -1);
         probe = stateFromHistory(history, undefined, cfg);
       }
@@ -634,18 +641,19 @@ export const useQuoridor = create<QuoridorStore>((set, get) => ({
         turnStartedAt: Date.now(),
       },
     });
-    persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig);
+    persistSaved(get().mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
   },
 
   resign: () => {
     const { state, mode, online } = get();
     if (!state || state.winner) return;
-    const player = mode === "online" && online ? online.myPlayer : state.turn;
+    /* 单人模式：认输的永远是人类（AI 思考中按下时轮到的是 AI 席，不该替它认输） */
+    const player = mode === "online" && online ? online.myPlayer : mode === "ai" ? get().playerSeat : state.turn;
     const next = applyResign(state, player);
     if (!next.winner) {
       /* 四人局出局后棋局继续 */
       set({ state: next, meta: { ...get().meta, turnStartedAt: Date.now() } });
-      persistSaved(mode, get().aiLevel, get().config, next, get().seatConfig);
+      persistSaved(mode, get().aiLevel, get().config, next, get().seatConfig, get().playerSeat);
     } else {
       set({ state: next });
       persistSaved(null, null, null, null);

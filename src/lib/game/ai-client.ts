@@ -27,11 +27,11 @@ function syncBudgetMs(level: AiLevel): number {
   return 280;
 }
 
-/* 根分裂并行度：仅社长档（用户要棋力优先的最强档）且核数宽裕时启用。
+/* 根分裂并行度：总编与社长档（用户要棋力优先的档位）且核数宽裕时启用。
  * 预留 2 核给 UI/渲染；上限 4（根分裂增益有限，功耗与收益平衡）。
- * 其余场景单 worker。 */
+ * 其余场景单 worker。v4：总编档也启用（用户两轮反馈均要求更强）。 */
 function parallelism(state: GameState, level: AiLevel): number {
-  if (state.playerCount === 4 || level < 4) return 1;
+  if (state.playerCount === 4 || level < 3) return 1;
   const hc = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 1 : 1;
   if (hc < 6) return 1;
   return Math.min(4, hc - 2);

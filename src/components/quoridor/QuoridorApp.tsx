@@ -2,11 +2,13 @@
 
 /* 全书装帧：纸面噪点、刊头 running head、页码 folio、
  * 视图切换 cross-fade + 水平滑动（翻页语言），riso 光标拖尾。
+ * 浏览器历史集成：每次视图切换 push 一条同名历史条目，
+ * 手机返回键 / 浏览器后退 → 回到上一视图而非退出站点。
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useQuoridor } from "@/store/game-store";
+import { useQuoridor, type View } from "@/store/game-store";
 import { skinById } from "@/lib/game/types";
 import { HeroView } from "./HeroView";
 import { ContentsView } from "./ContentsView";
@@ -56,6 +58,47 @@ export function QuoridorApp() {
   const skin = useQuoridor((s) => s.skin);
   const posterOpen = useQuoridor((s) => s.posterOpen);
   const playerCount = useQuoridor((s) => s.state?.playerCount);
+
+  /* —— 浏览器历史集成（手机返回键修复） ——
+   * 视图切换是纯 store 状态，不产生浏览器历史条目——用户从首页
+   * 一路走进对局页后，历史栈仍只有进站一条，手机返回键直接退出
+   * 网页。这里把每次视图切换同步成一条 pushState（state 携带视图
+   * 名，URL 不变）；popstate 时恢复历史条目中的视图。
+   * 关键：合并而非覆盖 history.state——Next.js 路由器在 state 里
+   * 维护自己的内部键（如 __NA），抹掉会让 back 时触发硬导航整页
+   * 重载而非同文档 popstate。suppressingRef：popstate 恢复引发的
+   * view 变化不再 push（避免又叉出无穷多历史）。 */
+  const suppressingRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof history === "undefined") return;
+    const initial = useQuoridor.getState().view;
+    try {
+      history.replaceState({ ...history.state, qv: initial }, "");
+    } catch {
+      /* 隐私模式等 replaceState 不可用：返回键退回原生行为 */
+    }
+    const unsub = useQuoridor.subscribe((s) => {
+      if (suppressingRef.current) return;
+      const qv = s.view;
+      try {
+        if (history.state?.qv !== qv) history.pushState({ ...history.state, qv }, "");
+      } catch {
+        /* noop */
+      }
+    });
+    const onPop = (e: PopStateEvent) => {
+      const qv = (e.state as { qv?: View } | null)?.qv;
+      if (!qv || qv === useQuoridor.getState().view) return;
+      suppressingRef.current = true;
+      useQuoridor.getState().setView(qv);
+      suppressingRef.current = false;
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      unsub();
+      window.removeEventListener("popstate", onPop);
+    };
+  }, []);
 
   /* 挂载后（hydration 已完成）再从 localStorage 恢复持久化偏好。
    * 初始渲染用确定性默认值，保证 SSR HTML 与客户端首帧完全一致，

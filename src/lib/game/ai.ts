@@ -59,6 +59,9 @@ interface LevelParams {
   maxDepth: number; // 迭代加深深度上限
   wallLimit: number; // 内层节点挡板候选上限
   rootWallLimit: number; // 根节点挡板候选上限（探针验证后保留数）
+  /** 墙威胁静止搜索：仅预算充裕的社长档启用（消融：L4 +37%，
+   * L3 短预算下深度损失大于战术收益） */
+  qs: boolean;
 }
 
 const MAX_PLY = 28;
@@ -83,6 +86,9 @@ const OFF_EXT = !!ENV.QUORIDOR_AI_OFF_EXT; // 战术延展
 const OFF_ASP = !!ENV.QUORIDOR_AI_OFF_ASP; // 根期望窗口
 const OFF_PTT = !!ENV.QUORIDOR_AI_OFF_PTT; // 持久置换表（退回每回合新建）
 const OFF_RW = !!ENV.QUORIDOR_AI_OFF_RW; // 板尾降深
+const OFF_NMP = !!ENV.QUORIDOR_AI_OFF_NMP; // 空着剪枝（v4）
+const OFF_QS = !!ENV.QUORIDOR_AI_OFF_QS; // 墙威胁静止搜索（v4）
+const OFF_WP = !!ENV.QUORIDOR_AI_OFF_WP; // 评估板压项（v4）
 
 export const AI_DEBUG = typeof process !== "undefined" && !!process.env?.QUORIDOR_AI_DEBUG;
 
@@ -95,23 +101,26 @@ function levelParams(level: AiLevel, size: number): LevelParams {
       maxDepth: ENV_DEPTH ?? 2,
       wallLimit: ENV_WALLS ?? 10,
       rootWallLimit: ENV_ROOT ?? 12,
+      qs: false,
     };
   }
   if (level === 3) {
     return {
       budgetMs: Math.round(1600 * sizeScale),
-      maxDepth: ENV_DEPTH ?? (size <= 5 ? 9 : size === 7 ? 8 : size === 9 ? 9 : size === 11 ? 7 : 6),
+      maxDepth: ENV_DEPTH ?? (size <= 5 ? 10 : size === 7 ? 9 : size === 9 ? 10 : size === 11 ? 7 : 6),
       wallLimit: ENV_WALLS ?? 16,
       rootWallLimit: ENV_ROOT ?? 24,
+      qs: false, /* 消融：短预算下 QS 深度损失 > 战术收益，关 */
     };
   }
   /* level 4 社长：最强档全预算（用户要求棋力优先，应手最长约 4.8s，
    * 外推早停后典型 2.5-3s；尺寸缩放限制大开本的上限） */
   return {
     budgetMs: Math.round(4800 * sizeScale),
-    maxDepth: ENV_DEPTH ?? (size <= 5 ? 13 : size === 7 ? 12 : size === 9 ? 12 : size === 11 ? 8 : 7),
+    maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 13 : size === 9 ? 13 : size === 11 ? 9 : 7),
     wallLimit: ENV_WALLS ?? 18,
     rootWallLimit: ENV_ROOT ?? 32,
+    qs: true, /* 预算充裕：QS 战术解析净增益 +37%（对决 75% vs 38%） */
   };
 }
 
@@ -247,8 +256,8 @@ function toCore(state: GameState): Core {
  * 因此 do/undo 搜索中同一墙配置反复出现时全部命中，BFS 只在真正的新配置上执行。
  * 直接映射表：随机替换旧项，无需清理（纯函数，跨搜索持久有效）。 */
 
-const DC_BITS = 13;
-const DC_SIZE = 1 << DC_BITS; // 8192 槽
+const DC_BITS = 14;
+const DC_SIZE = 1 << DC_BITS; // 16384 槽（v4：静止搜索的探针配置多样性翻倍）
 const DC_MASK = DC_SIZE - 1;
 const dcKeyLo = new Int32Array(DC_SIZE);
 const dcKeyHi = new Int32Array(DC_SIZE);
@@ -720,6 +729,8 @@ interface SearchCtx {
   deadline: number;
   start: number;
   nodes: number;
+  qnodes: number; // 静止搜索节点数（v4）
+  inNull: boolean; // 空着搜索中（禁连续空着，v4）
   params: LevelParams;
   wallPly: number[]; // 搜索路径上放板所处的层（断路归责用）
   exts: number; // 当前路径上的战术延展配额（≤ 2）
@@ -749,6 +760,26 @@ function wallCode(x: number, y: number, o: Orientation, size: number): number {
 }
 
 /* ============ 候选生成 ============ */
+
+/* 锚点冲突快检（网格版 O(1)：重叠/十字交叉；越界视为冲突）——
+ * 威胁墙枚举用（engine 的 wallConflicts 是 Wall[] 版，热路径上更慢） */
+function wallFits(c: Core, x: number, y: number, o: Orientation): boolean {
+  const W = c.size - 1;
+  const lastA = W - 1;
+  if (x < 0 || y < 0 || x > lastA || y > lastA) return true;
+  if (o === "h") {
+    if (c.h[y * W + x]) return true;
+    if (x > 0 && c.h[y * W + x - 1]) return true;
+    if (x < lastA && c.h[y * W + x + 1]) return true;
+    if (c.v[y * W + x]) return true;
+  } else {
+    if (c.v[y * W + x]) return true;
+    if (y > 0 && c.v[(y - 1) * W + x]) return true;
+    if (y < lastA && c.v[(y + 1) * W + x]) return true;
+    if (c.h[y * W + x]) return true;
+  }
+  return false;
+}
 
 function genCandidates(
   c: Core,
@@ -992,6 +1023,18 @@ function evaluate(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
    * 裸奔也不放板（输给跳子节奏）；高于 0.6/板则诱发“囚笼”挥霍。 */
   score += Math.min(myWalls * 0.45, 6) - Math.min(opWalls * 0.45, 6);
 
+  /* 板压项（v4）：弹药 × 对手路径长度的交叉项。我的余板多且对手
+   * 路径长 → 我还能把对手的长路拉得更长（表面领先要放大）；镜像，
+   * 对手余板多且我路径长 → 我的表面路径领先是虚的（随时可被封）。
+   * 与余板交换项的分工：交换项计「弹药存量」，板压项计「弹药的目标
+   * 定向」。系数 0.04：极端 10 板 × 12 步 ≈ ±4.8，与交换项同量级
+   * 而不叠加过度。单边缺板时凸显（开局对称抵消）。 */
+  if (!OFF_WP) {
+    const pressMe = Math.min(myWalls, 10) * Math.min(opD, 12);
+    const pressOp = Math.min(opWalls, 10) * Math.min(myD, 12);
+    score += 0.04 * (pressMe - pressOp);
+  }
+
   /* 行棋权节奏：等距竞速时轮到走的一方实质领先半步（跳子先手） */
   const mover = ply % 2 === 0 ? me : opponent(me);
   if (Math.abs(opD - myD) <= 2) score += mover === me ? 0.25 : -0.25;
@@ -1105,6 +1148,229 @@ function raceRec(c: Core, me: Player, ply: number, alpha: number, beta: number, 
   return best;
 }
 
+/* ============ 墙威胁静止搜索（v4） ============
+ * 地平线效应的最后一洞：depth 耗尽处旧版直接静态评估，但行棋方可能
+ * 手握重击板（把对手距离 +3 以上）——静态分对此视而不见，导致领先方
+ * 在地平线前一步「看不见即将到来的封锁」而误判安全。
+ * 静止搜索只展开「威胁板」：封锁受害者当前最短路下降边的墙，经
+ * probe 验证净增益 ≥1 且受害者增益 ≥2。棋子步是安静着法（±1），
+ * 无需展开；墙是本游戏中的「吃子/将军」。
+ *
+ * 威胁枚举算法：沿受害者距离场做下降边 BFS（多路并集），每条
+ * (u→w) 下降边恰可被两面墙封锁（锚点由边方向导出，见 edgeBlockedG
+ * 约定）。锚点去重 + 冲突快检 + probe 增益筛选 → 威胁集合。
+ * probe 走 gLo 键控的距离缓存：同一墙配置的重复 probe 为 O(1) 命中。 */
+
+const QT_EDGE_CAP = 14; // 收录下降边上限（BFS 展开宽度）
+const QT_WALL_CAP = 5; // 每节点展开威胁墙上限
+const QT_QGAIN_MIN = 2; // 受害者增益阈值（净增 ≥2 步才算重击）
+const QT_NET_MIN = 1; // 净增益阈值（受害者增益 − 自伤）
+const QT_MARGIN = 4; // stand-pat 距窗口多远即免展开（典型重击板摆动 ≤4）
+const QPLY_CAP = 5; // 静止递归深度（≈ 两轮半板交换）
+const Q_D0_MAX = 15; // 受害者距离超此值时威胁稀疏，免枚举
+
+const _qtVisited = new Uint8Array(MAX_CELLS);
+const _qtQueueX = new Int16Array(MAX_CELLS);
+const _qtQueueY = new Int16Array(MAX_CELLS);
+const _qtAnchorX = new Int16Array(QT_EDGE_CAP * 2);
+const _qtAnchorY = new Int16Array(QT_EDGE_CAP * 2);
+const _qtAnchorO = new Uint8Array(QT_EDGE_CAP * 2);
+const _qtSeen = new Uint16Array(WALL_CODE_SPACE); // 代际戳去重（免清零）
+let _qtGen = 0;
+/* 威胁墙输出（按 qply 分槽的结构数组，避免对象churn与重入踩踏） */
+const _qtOutX = new Int16Array((QPLY_CAP + 1) * QT_WALL_CAP);
+const _qtOutY = new Int16Array((QPLY_CAP + 1) * QT_WALL_CAP);
+const _qtOutO = new Uint8Array((QPLY_CAP + 1) * QT_WALL_CAP);
+const _qtOutG = new Int16Array((QPLY_CAP + 1) * QT_WALL_CAP);
+const _qtOutC = new Int32Array((QPLY_CAP + 1) * QT_WALL_CAP);
+
+/* 威胁墙枚举：行棋方 mover 封锁受害者（对手）路径的重击板集合。
+ * 返回（写入 qply 槽的结构数组）：数量。按增益降序。 */
+function qThreatWalls(c: Core, mover: Player, qply: number): number {
+  const slot = qply * QT_WALL_CAP;
+  const wallsLeft = mover === "A" ? c.wallsA : c.wallsB;
+  if (wallsLeft <= 0 || qply > QPLY_CAP) return 0;
+  const victim = opponent(mover);
+  const buf = goalDists(c);
+  const N = c.size;
+  const W = N - 1;
+  const base = victim === "A" ? 0 : MAX_CELLS;
+  const vpos = victim === "A" ? c.posA : c.posB;
+  const d0 = buf[base + vpos.y * N + vpos.x];
+  if (d0 < 2 || d0 > Q_D0_MAX) return 0;
+  const moverD0 = coreDist(c, mover);
+  if (moverD0 < 0) return 0;
+
+  /* 下降边 BFS（多路并集），导出可封锁锚点 */
+  _qtVisited.fill(0, 0, N * N);
+  let qh = 0;
+  let qt = 0;
+  _qtQueueX[qt] = vpos.x;
+  _qtQueueY[qt] = vpos.y;
+  qt++;
+  _qtVisited[vpos.y * N + vpos.x] = 1;
+  let nAnchors = 0;
+  const cap = QT_EDGE_CAP * 2;
+  const grids = { h: c.h, v: c.v };
+  while (qh < qt && nAnchors < cap) {
+    const ux = _qtQueueX[qh];
+    const uy = _qtQueueY[qh];
+    qh++;
+    const du = buf[base + uy * N + ux];
+    for (let k = 0; k < 4 && nAnchors < cap; k++) {
+      const dx = k === 2 ? -1 : k === 3 ? 1 : 0;
+      const dy = k === 0 ? -1 : k === 1 ? 1 : 0;
+      const nx = ux + dx;
+      const ny = uy + dy;
+      if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+      if (edgeBlockedG(grids, ux, uy, dx, dy)) continue;
+      if (buf[base + ny * N + nx] !== du - 1) continue;
+      /* u→w 下降边的两面封锁墙锚（edgeBlockedG 约定） */
+      if (dy !== 0) {
+        const ay = dy === -1 ? uy - 1 : uy;
+        _qtAnchorX[nAnchors] = ux;
+        _qtAnchorY[nAnchors] = ay;
+        _qtAnchorO[nAnchors] = 0; /* h */
+        nAnchors++;
+        if (nAnchors >= cap) break;
+        _qtAnchorX[nAnchors] = ux - 1;
+        _qtAnchorY[nAnchors] = ay;
+        _qtAnchorO[nAnchors] = 0;
+        nAnchors++;
+      } else {
+        const ax = dx === 1 ? ux : ux - 1;
+        _qtAnchorX[nAnchors] = ax;
+        _qtAnchorY[nAnchors] = uy;
+        _qtAnchorO[nAnchors] = 1; /* v */
+        nAnchors++;
+        if (nAnchors >= cap) break;
+        _qtAnchorX[nAnchors] = ax;
+        _qtAnchorY[nAnchors] = uy - 1;
+        _qtAnchorO[nAnchors] = 1;
+        nAnchors++;
+      }
+      if (!_qtVisited[ny * N + nx]) {
+        _qtVisited[ny * N + nx] = 1;
+        _qtQueueX[qt] = nx;
+        _qtQueueY[qt] = ny;
+        qt++;
+      }
+    }
+  }
+
+  /* 锚点 → 冲突快检 + 代际去重 + probe 增益筛选 */
+  if (++_qtGen >= 65535) {
+    _qtSeen.fill(0);
+    _qtGen = 1;
+  }
+  let nOut = 0;
+  for (let i = 0; i < nAnchors && nOut < QT_WALL_CAP; i++) {
+    const ax = _qtAnchorX[i];
+    const ay = _qtAnchorY[i];
+    const ao = _qtAnchorO[i] === 0 ? "h" : "v";
+    if (wallFits(c, ax, ay, ao)) continue;
+    const code = wallCode(ax, ay, ao, N);
+    if (_qtSeen[code] === _qtGen) continue;
+    _qtSeen[code] = _qtGen;
+    const wp = coreProbeWall(c, ax, ay, ao);
+    if (wp.pathCut) continue; /* 断路墙非法 */
+    const newVicD = victim === "A" ? wp.dA : wp.dB;
+    const newMovD = mover === "A" ? wp.dA : wp.dB;
+    const gain = newVicD - d0;
+    const net = gain - (newMovD - moverD0);
+    if (gain < QT_QGAIN_MIN || net < QT_NET_MIN) continue;
+    /* 增益降序插入（≤5 项，插入排序） */
+    let j = nOut;
+    while (j > 0 && _qtOutG[slot + j - 1] < gain) {
+      _qtOutX[slot + j] = _qtOutX[slot + j - 1];
+      _qtOutY[slot + j] = _qtOutY[slot + j - 1];
+      _qtOutO[slot + j] = _qtOutO[slot + j - 1];
+      _qtOutG[slot + j] = _qtOutG[slot + j - 1];
+      _qtOutC[slot + j] = _qtOutC[slot + j - 1];
+      j--;
+    }
+    _qtOutX[slot + j] = ax;
+    _qtOutY[slot + j] = ay;
+    _qtOutO[slot + j] = ao === "h" ? 0 : 1;
+    _qtOutG[slot + j] = gain;
+    _qtOutC[slot + j] = code;
+    nOut++;
+  }
+  return nOut;
+}
+
+/* 静止搜索：stand-pat + 仅威胁板展开。
+ * 固定视角下的正确性：max 节点（我行棋）真值 ≥ stand（我总有安静步
+ * 保底），stand ≥ beta 即剪；min 节点（对手行棋）真值 ≤ stand，
+ * stand ≤ alpha 即剪。远离窗口（±QT_MARGIN）的节点免展开——典型
+ * 重击板摆动 ≤4，追不回窗口差。 */
+function qsearch(
+  c: Core,
+  ply: number,
+  qply: number,
+  alpha: number,
+  beta: number,
+  me: Player,
+  ctx: SearchCtx,
+): number {
+  ctx.qnodes++;
+  if ((ctx.qnodes & 127) === 0 && Date.now() > ctx.deadline) throw ABORT;
+  const stand = evaluate(c, me, ply, ctx);
+  if (OFF_QS || !ctx.params.qs || qply >= QPLY_CAP) return stand;
+  const mover = ply % 2 === 0 ? me : opponent(me);
+  /* 窗口检查前置：窗外节点（占叶子大多数）免去威胁枚举的 probe 开销 */
+  if (mover === me) {
+    if (stand >= beta) return stand;
+    if (stand <= alpha - QT_MARGIN) return stand;
+    const nT = qThreatWalls(c, mover, qply);
+    if (nT === 0) return stand;
+    const slot = qply * QT_WALL_CAP;
+    let best = stand;
+    for (let i = 0; i < nT; i++) {
+      const wx = _qtOutX[slot + i];
+      const wy = _qtOutY[slot + i];
+      const wo = _qtOutO[slot + i] === 0 ? "h" : "v";
+      const code = _qtOutC[slot + i];
+      ctx.wallPly.push(ply);
+      applyWallC(c, mover, wx, wy, wo);
+      const v = qsearch(c, ply + 1, qply + 1, alpha, beta, me, ctx);
+      undoWallC(c, mover, wx, wy, wo);
+      ctx.wallPly.pop();
+      if (v > best) best = v;
+      if (best > alpha) alpha = best;
+      if (alpha >= beta) {
+        if (code < WALL_CODE_SPACE && ply < MAX_PLY) noteCutoff(ctx, ply, code, 1);
+        break;
+      }
+    }
+    return best;
+  }
+  if (stand <= alpha) return stand;
+  if (stand >= beta + QT_MARGIN) return stand;
+  const nT = qThreatWalls(c, mover, qply);
+  if (nT === 0) return stand;
+  const slot = qply * QT_WALL_CAP;
+  let best = stand;
+  for (let i = 0; i < nT; i++) {
+    const wx = _qtOutX[slot + i];
+    const wy = _qtOutY[slot + i];
+    const wo = _qtOutO[slot + i] === 0 ? "h" : "v";
+    const code = _qtOutC[slot + i];
+    ctx.wallPly.push(ply);
+    applyWallC(c, mover, wx, wy, wo);
+    const v = qsearch(c, ply + 1, qply + 1, alpha, beta, me, ctx);
+    undoWallC(c, mover, wx, wy, wo);
+    ctx.wallPly.pop();
+    if (v < best) best = v;
+    if (best < beta) beta = best;
+    if (alpha >= beta) {
+      if (code < WALL_CODE_SPACE && ply < MAX_PLY) noteCutoff(ctx, ply, code, 1);
+      break;
+    }
+  }
+  return best;
+}
+
 /* ============ α-β 搜索（固定视角 + PVS + TT + 杀手/历史启发） ============ */
 
 function noteCutoff(ctx: SearchCtx, ply: number, code: number, depth: number) {
@@ -1199,6 +1465,37 @@ function alphabeta(
     }
   }
 
+  /* 空着剪枝（v4）：非 PV 窄窗、深 ≥3，且行棋方不在竞速精度区
+   * （距终点 > 3、余板 ≥ 2）时，先让行棋方「弃权」搜一层缩深树——
+   * 若弃权后仍達 beta（max 视角）/ ≤ alpha（min 视角），则真着法
+   * 更不会更差，直接剪。Quoridor 无真空着，但「弃权 + 对手最佳
+   * 回应」是行棋方局势的下界近似；竞速末段弃权即损失节奏
+   * （zugzwang 风险），双重守卫规避。不连续空着。 */
+  if (
+    !OFF_NMP &&
+    depth >= 3 &&
+    !ctx.inNull &&
+    beta - alpha < PVS_EPS * 8 &&
+    Math.abs(beta) < EVAL_WIN / 2 &&
+    coreDist(c, mover0) > 3 &&
+    (mover0 === "A" ? c.wallsA : c.wallsB) >= 2
+  ) {
+    const R = depth >= 7 ? 3 : 2;
+    c.hashLo = (c.hashLo ^ zSideLo) | 0;
+    c.hashHi = (c.hashHi ^ zSideHi) | 0;
+    ctx.inNull = true;
+    let nv: number;
+    if (mover0 === me) {
+      nv = alphabeta(c, ply + 1, depth - 1 - R, beta - PVS_EPS, beta, me, ctx);
+    } else {
+      nv = alphabeta(c, ply + 1, depth - 1 - R, alpha, alpha + PVS_EPS, me, ctx);
+    }
+    ctx.inNull = false;
+    c.hashLo = (c.hashLo ^ zSideLo) | 0;
+    c.hashHi = (c.hashHi ^ zSideHi) | 0;
+    if (mover0 === me ? nv >= beta : nv <= alpha) return nv;
+  }
+
   /* 反向后手剪枝（v3）：浅层且静态分大幅越界时免展开（近终局精度区除外）。
    * 边际 5.5/层：一块重击板对路径差的摆动可达 4-8，窄边际会误剪
    * 对手的墙陷阱（消融实测：3.5/层时 L3 对 v2 胜率崩至 17%）。 */
@@ -1212,7 +1509,7 @@ function alphabeta(
     }
   }
 
-  if (depth <= 0) return evaluate(c, me, ply, ctx);
+  if (depth <= 0) return qsearch(c, ply, 0, alpha, beta, me, ctx);
 
   const p = mover0;
   let cands = genCandidates(c, p, ctx, ply, false, ctx.params.wallLimit);
@@ -1483,6 +1780,8 @@ function searchMove(
     deadline: Date.now() + params.budgetMs,
     start: Date.now(),
     nodes: 0,
+    qnodes: 0,
+    inNull: false,
     params,
     wallPly: [],
     exts: 0,
@@ -1526,6 +1825,7 @@ function searchMove(
   ): { localBest: MovePayload | null; localScore: number; searched: number; aborted: boolean } => {
     ctx.exts = 0;
     ctx.wallPly.length = 0;
+    ctx.inNull = false; /* 异常展开防御：ABORT 跳过清理时集中归零 */
     let localBest: MovePayload | null = null;
     let localScore = -Infinity;
     let alpha = alphaStart;
@@ -1627,6 +1927,7 @@ function searchMove(
   _lastStats.ttSize = ctx.tt.size;
   _lastStats.elapsedMs = Date.now() - ctx.start;
   _lastStats.depth = completedDepth;
+  _lastStats.qnodes = ctx.qnodes;
   /* 分数截断为有限值：结构化克隆可传 Infinity，但聚合比较更稳妥 */
   return { payload: bestPayload, score: Number.isFinite(bestScore) ? bestScore : -1e9 };
 }
@@ -1888,7 +2189,7 @@ export function computeAiMove(
 }
 
 /* 供测试与调试：上一次搜索的规模统计 */
-const _lastStats = { nodes: 0, ttSize: 0, depth: 0, elapsedMs: 0, dcHits: 0, dcMisses: 0 };
+const _lastStats = { nodes: 0, ttSize: 0, depth: 0, elapsedMs: 0, qnodes: 0, dcHits: 0, dcMisses: 0 };
 export function lastSearchStats() {
   return { ..._lastStats, dcHits, dcMisses };
 }
