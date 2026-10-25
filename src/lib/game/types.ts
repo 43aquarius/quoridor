@@ -75,6 +75,8 @@ export type MovePayload = PawnPayload | WallPayload | ResignPayload | TimeoutPay
 export interface AiDecision {
   payload: MovePayload;
   label: string;
+  /** 搜索分（根分裂并行时跨 worker 聚合比较用；启发式档位可能缺省） */
+  score?: number;
 }
 
 export interface Move {

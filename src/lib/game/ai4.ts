@@ -276,7 +276,10 @@ export function computeAiMove4(
     if (myWalls > 0 && !racing && Math.random() < 0.16) {
       const edges = pathEdges(state, leader.p, grids);
       const cands = candidatesFromEdges(edges, N).filter(
-        (c) => !wallConflicts(state.walls, c.x, c.y, c.o),
+        (c) =>
+          !wallConflicts(state.walls, c.x, c.y, c.o) &&
+          /* 断路校验：不得封死任何活跃玩家的路径（否则非法着法） */
+          probeWall(grids, c, state, actives, before, N) !== null,
       );
       if (cands.length > 0) {
         const c = cands[Math.floor(Math.random() * cands.length)];
