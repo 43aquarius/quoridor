@@ -1,0 +1,72 @@
+name: Android APK
+
+# 步步为营 · CI/CD
+# - 推送 main / 手动触发：构建 Release APK，作为构建产物（Artifact）上传
+# - 推送 tag（如 3.0）：构建后自动创建 GitHub Release 并附上 APK
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: 构建 Release APK
+        run: gradle -p android assembleRelease --no-daemon --stacktrace
+
+      - name: 整理产物
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            V="$GITHUB_REF_NAME"
+          else
+            V="dev-${GITHUB_SHA::7}"
+          fi
+          cp "$APK" "quoridor-${V}.apk"
+          echo "APK_NAME=quoridor-${V}.apk" >> "$GITHUB_ENV"
+          ls -lh "quoridor-${V}.apk"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: quoridor-apk
+          path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+
+      - name: 发布 Release（仅 tag）
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
+          gh release create "$GITHUB_REF_NAME" "$APK_NAME" \
+            --title "步步为营 Quoridor $GITHUB_REF_NAME" \
+            --notes-file release-notes.md
