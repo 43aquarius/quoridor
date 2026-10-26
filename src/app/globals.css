@@ -266,7 +266,7 @@ body {
   color: var(--paper);
 }
 
-/* 印章“胜”字 */
+/* 印章大字（胜 / 败） */
 @keyframes stamp-slam {
   0% {
     transform: scale(2.6) rotate(-10deg);

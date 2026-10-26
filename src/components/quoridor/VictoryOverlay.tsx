@@ -1,6 +1,7 @@
 "use client";
 
-/* 胜利：整页高对比翻转为墨黑底纸白字，超大「胜」字以印章盖压动画砸下，
+/* 结算：整页高对比翻转为墨黑底纸白字，超大印章字以盖压动画砸下——
+ * 观屏者赢则盖「胜」，观屏者输则盖同款样式的「败」；
  * 附战绩排版；可保存此局入档案馆、生成棋谱海报、再来一局。
  */
 
@@ -41,6 +42,20 @@ export function VictoryOverlay() {
   const four = state.playerCount === 4;
   const seatConfig = useQuoridor.getState().seatConfig;
   const online = useQuoridor.getState().online;
+  const playerSeat = useQuoridor.getState().playerSeat;
+  /* 观屏者视角：败方不再盖「胜」，改盖同款「败」章。
+   * 单人对 AI —— 看我执哪席（playerSeat）；
+   * 在线对战 —— 看我坐哪席（online.myPlayer，四人房同理）；
+   * 本地四人围坐 —— 同屏共享，赢家是真人席则屏上有赢家（胜），赢家是 AI 席则真人均败（败）；
+   * 本地双人同屏 —— 一屏共赏，恒以胜者作章。 */
+  const iWon =
+    mode === "online" && online
+      ? online.myPlayer === winner
+      : mode === "ai"
+        ? (playerSeat ?? "A") === winner
+        : four
+          ? seatConfig?.[winner]?.kind !== "ai"
+          : true;
   const winnerColor = four ? PLAYER4_COLORS[winner] : winner === "A" ? "var(--qa)" : "var(--qb)";
   const sk = skinById(skin);
   const winnerHex = four ? PLAYER4_COLORS[winner] : winner === "A" ? sk.a : sk.b;
@@ -149,7 +164,7 @@ export function VictoryOverlay() {
               textShadow: `6px 6px 0 ${winnerHex}`,
             }}
           >
-            胜
+            {iWon ? "胜" : "败"}
           </span>
           {/* 印章框 */}
           <motion.span
