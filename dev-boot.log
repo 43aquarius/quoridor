@@ -314,3 +314,6 @@ Use 'kill 8406' to stop it.
  GET / 200 in 41ms (compile: 5ms, render: 36ms)
  GET / 200 in 380ms (compile: 6ms, render: 374ms)
  GET / 200 in 320ms (compile: 23ms, render: 297ms)
+ GET / 200 in 980ms (compile: 912ms, render: 68ms)
+ GET / 200 in 104ms (compile: 9ms, render: 96ms)
+ GET / 200 in 63ms (compile: 10ms, render: 53ms)

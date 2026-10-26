@@ -51,3 +51,22 @@ Stage Summary:
 - 发布链路已全链路验证通过,用户可直接重新点「发布」
 - 项目现为平台标准布局(根目录),dev/发布/重启三条路径全部走通
 - 服务运行中: dev :3000(标准 dev.sh 流程)、relay :3004、网关 :81 全部 200
+
+---
+Task ID: 3
+Agent: 主 Agent (Super Z)
+Task: 彻底修复联机问题 + 联机服务器地址改为 https://d1n1c9rzwhe0-d.space.zhipuaidemo.cn
+
+Work Log:
+- 诊断:实测目标 relay 发现「房间不存在」高发。多轮实验证实:发布环境网关对每连接/每请求随机分流到 ≥10 个实例,relay 内存房间状态互相隔离(探测 0/6 可见,狩猎平均 10.5 次命中);轮询传输 POST 体经网关丢失(GET 建的会话 POST 到别的实例),唯 WebSocket 持久连接可钉住实例
+- client.ts 全重写:WebSocket 单传输 + forceNew;实例狩猎(join/resume 遇「房间不存在」换连接重试,先试活动连接+大厅探针池,再并行批量探针,命中晋升);门面 Socket(稳定事件面,底层连接更换 UI 无感知,once/off 语义兼容);大厅 6 探针池合并;公开房跨实例广告轮播(每 15s 9 连接,5 分钟上限,开局即停)
+- relay-server.ts:lobby-advertise/unadvertise 事件(广告 TTL 60s,真实房优先);RELAY_PORT 环境变量;发现并修复畸形 ack 参数打崩实例漏洞(cb?.() 对非空对象照样调用)——reply() 安全包装全部 24 处
+- .env 增 NEXT_PUBLIC_RELAY_URL=https://d1n1c9rzwhe0-d.space.zhipuaidemo.cn
+- 验证:本地 3 实例协议测试 7/7(广告跨实例可见/狩猎/撤广告);真实远程 E2E(浏览器双会话):建房→凭码狩猎入座→双向走子实时同步→刷新回座狩猎→大厅陈列与入座按钮→最终冒烟(含广告对旧服务器的兼容)
+- 生产构建通过;git 提交 aac8fb6
+
+Stage Summary:
+- 联机全链路修复完成,预览版已可用(客户端狩猎对旧版服务端完全兼容)
+- 大厅广告与 ack 加固需重新发布后才能在正式环境生效
+- 用户下一步:重新点「发布」,新代码(客户端+服务端)部署到 d1n1c9rzwhe0-d.space.zhipuaidemo.cn 后全部生效
+- 若未来更换发布域名,改 .env 的 NEXT_PUBLIC_RELAY_URL 并重新构建即可
