@@ -20,7 +20,13 @@
 import { createServer, type Server as HttpServer } from "http";
 import { Server } from "socket.io";
 
-const RELAY_PORT = 3004;
+/* 端口默认 3004;可用 RELAY_PORT 环境变量覆盖(多实例联调/独立部署) */
+const RELAY_PORT = Number(process.env.RELAY_PORT) > 0 ? Number(process.env.RELAY_PORT) : 3004;
+
+/* 回调安全包装:客户端 ack 入参若非函数,直接忽略(防畸形参数打崩实例) */
+function reply(cb: unknown, res: object) {
+  if (typeof cb === "function") (cb as (r: object) => void)(res);
+}
 
 /* 断线保留窗（四人局为出局时限；二人局为判负时限） */
 const RECONNECT_GRACE_MS = 5 * 60_000;
@@ -276,9 +282,46 @@ export interface LobbyRoomEntry {
 
 const LOBBY_ROOM = "quoridor-lobby";
 
-/* 大厅列表：公开 + 等待对手 + 房主在线 */
+/* —— 跨实例大厅广告(多实例网关适配) ——
+ * 网关把连接随机分流到不同实例,大厅列表天然只含本实例的房。
+ * 房主客户端会向多个实例广播「大厅广告」(lobby-advertise);
+ * 各实例把广告并入自己的大厅列表(真实房优先),过期自动淘汰。
+ * 广告仅用于陈列;入座仍走 join-room(自带实例狩猎),命中真实房间。 */
+const LOBBY_AD_TTL_MS = 60_000;
+const lobbyAds = new Map<string, { entry: LobbyRoomEntry; expiresAt: number }>();
+
+function adEntryOf(raw: unknown): LobbyRoomEntry | null {
+  const e = (raw ?? {}) as Partial<LobbyRoomEntry>;
+  const code = String(e.code ?? "").trim();
+  if (!/^\d{4}$/.test(code)) return null;
+  const size = Math.round(Number(e.size));
+  const playerCount: 2 | 4 = Number(e.playerCount) === 4 ? 4 : 2;
+  const seatsTotal = Math.round(Number(e.seatsTotal));
+  const seatsTaken = Math.round(Number(e.seatsTaken));
+  return {
+    code,
+    size: Number.isFinite(size) ? Math.min(13, Math.max(5, size)) : 9,
+    wallsPerPlayer: Number.isFinite(Math.round(Number(e.wallsPerPlayer))) ? Math.min(20, Math.max(0, Math.round(Number(e.wallsPerPlayer)))) : 10,
+    playerCount,
+    seatsTotal: Number.isFinite(seatsTotal) ? Math.min(4, Math.max(2, seatsTotal)) : 2,
+    seatsTaken: Number.isFinite(seatsTaken) ? Math.min(seatsTotal || 4, Math.max(0, seatsTaken)) : 1,
+    timeControl: {
+      totalSec: Math.max(0, Math.round(Number(e.timeControl?.totalSec)) || 0),
+      perMoveSec: Math.max(0, Math.round(Number(e.timeControl?.perMoveSec)) || 0),
+    },
+    createdAt: Number(e.createdAt) || Date.now(),
+    hostConnected: e.hostConnected !== false,
+  };
+}
+
+/* 大厅列表：公开 + 等待对手 + 房主在线;并入跨实例广告(真实房优先) */
 function lobbyList(): LobbyRoomEntry[] {
+  const now = Date.now();
+  for (const [code, ad] of lobbyAds) {
+    if (now > ad.expiresAt) lobbyAds.delete(code);
+  }
   const out: LobbyRoomEntry[] = [];
+  const codes = new Set<string>();
   for (const r of rooms.values()) {
     if (r.status !== "waiting") continue;
     if (!r.isPublic) continue;
@@ -288,16 +331,19 @@ function lobbyList(): LobbyRoomEntry[] {
     for (const s of seatOrder(r)) {
       if (r.players[s]) seatsTaken++;
     }
+    let listed = false;
     if (four) {
       // 四人房：所有非 AI 座都被真人占满即视为「满员等待开局」下架
       let openHumanSeat = false;
       for (const s of ["B", "C", "D"] as Seat[]) {
         if (!r.players[s] && !isAiSeat(r, s)) openHumanSeat = true;
       }
-      if (!openHumanSeat) continue;
+      listed = openHumanSeat;
     } else {
-      if (!r.players.A || r.players.B) continue;
+      listed = !!(r.players.A && !r.players.B);
     }
+    if (!listed) continue;
+    codes.add(r.code);
     out.push({
       code: r.code,
       size: r.settings.size,
@@ -309,6 +355,10 @@ function lobbyList(): LobbyRoomEntry[] {
       createdAt: r.createdAt,
       hostConnected: !!r.players.A?.connected,
     });
+  }
+  for (const ad of lobbyAds.values()) {
+    if (codes.has(ad.entry.code)) continue; // 真实房优先,广告退位
+    out.push(ad.entry);
   }
   out.sort((a, b) => b.createdAt - a.createdAt);
   return out;
@@ -514,7 +564,7 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
         };
         rooms.set(code, r);
         socket.join(code);
-        cb?.({
+        reply(cb, {
           ok: true,
           roomCode: code,
           player: "A",
@@ -533,16 +583,16 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
       const code = String(data?.roomCode ?? "").trim();
       const r = rooms.get(code);
       if (!r) {
-        cb?.({ ok: false, error: "房间不存在或已失效" });
+        reply(cb, { ok: false, error: "房间不存在或已失效" });
         return;
       }
       if (r.status === "ended") {
         /* 已收束的房不可再入座，防止误入终局 */
-        cb?.({ ok: false, error: "这一局已收束，另开一间吧" });
+        reply(cb, { ok: false, error: "这一局已收束，另开一间吧" });
         return;
       }
       if (r.status === "playing") {
-        cb?.({ ok: false, error: "对局已开始，须凭原座位回局" });
+        reply(cb, { ok: false, error: "对局已开始，须凭原座位回局" });
         return;
       }
       const four = r.settings.playerCount === 4;
@@ -550,7 +600,7 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
         if (r.players.B) {
           const b = r.players.B;
           if (b.connected) {
-            cb?.({ ok: false, error: "房间已满" });
+            reply(cb, { ok: false, error: "房间已满" });
             return;
           }
           /* 原 B 座离线：视作换座重连，更新凭证（旧 token 失效） */
@@ -565,7 +615,7 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
         r.disconnectGcAt = null;
         r.loserOnGc = null;
         socket.join(code);
-        cb?.({
+        reply(cb, {
           ok: true,
           roomCode: code,
           player: "B",
@@ -595,7 +645,7 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
         }
       }
       if (!seat) {
-        cb?.({ ok: false, error: "房间已满（或余座已留给编辑部 AI）" });
+        reply(cb, { ok: false, error: "房间已满（或余座已留给编辑部 AI）" });
         return;
       }
       const tok = token();
@@ -603,7 +653,7 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
       r.players[seat] = { token: tok, socketId: socket.id, connected: true, since: now };
       r.lastActivity = now;
       socket.join(code);
-      cb?.({
+      reply(cb, {
         ok: true,
         roomCode: code,
         player: seat,
@@ -627,28 +677,28 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
       ) => {
         const r = rooms.get(String(data?.roomCode ?? ""));
         if (!r || r.status !== "waiting") {
-          cb?.({ ok: false, error: "房间不可设置（已开局或不存在）" });
+          reply(cb, { ok: false, error: "房间不可设置（已开局或不存在）" });
           return;
         }
         const isHost = data?.token && r.players.A?.token === String(data.token);
         if (!isHost) {
-          cb?.({ ok: false, error: "只有房主能安排席位" });
+          reply(cb, { ok: false, error: "只有房主能安排席位" });
           return;
         }
         const seat = String(data?.seat ?? "") as Seat;
         if (!["B", "C", "D"].includes(seat)) {
-          cb?.({ ok: false, error: "只能调整乙/丙/丁座" });
+          reply(cb, { ok: false, error: "只能调整乙/丙/丁座" });
           return;
         }
         if (r.players[seat]) {
-          cb?.({ ok: false, error: "该座已有棋友入座" });
+          reply(cb, { ok: false, error: "该座已有棋友入座" });
           return;
         }
         const lv = Math.round(Number(data?.aiLevel));
         if (!Number.isFinite(lv) || lv <= 0) delete r.aiSeats[seat];
         else r.aiSeats[seat] = Math.min(4, Math.max(1, lv)) as number;
         r.lastActivity = Date.now();
-        cb?.({ ok: true, seats: peerStatus(r).seats });
+        reply(cb, { ok: true, seats: peerStatus(r).seats });
         io?.to(r.code).emit("seat-update", { roomCode: r.code, seats: peerStatus(r).seats });
         broadcastLobby();
       },
@@ -658,32 +708,32 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
     socket.on("start-game", (data: { roomCode?: string; token?: string }, cb?: (res: object) => void) => {
       const r = rooms.get(String(data?.roomCode ?? ""));
       if (!r) {
-        cb?.({ ok: false, error: "房间不存在" });
+        reply(cb, { ok: false, error: "房间不存在" });
         return;
       }
       const isHost = data?.token && r.players.A?.token === String(data.token);
       if (!isHost) {
-        cb?.({ ok: false, error: "只有房主能开局" });
+        reply(cb, { ok: false, error: "只有房主能开局" });
         return;
       }
       if (r.settings.playerCount !== 4) {
-        cb?.({ ok: false, error: "此房为双人对局，无需手动开局" });
+        reply(cb, { ok: false, error: "此房为双人对局，无需手动开局" });
         return;
       }
       if (r.status !== "waiting") {
-        cb?.({ ok: false, error: "对局已在进行" });
+        reply(cb, { ok: false, error: "对局已在进行" });
         return;
       }
       let ready = true;
       for (const s of ["B", "C", "D"] as Seat[]) {
         if (!r.players[s] && !isAiSeat(r, s)) ready = false;
         if (r.players[s] && isAiSeat(r, s)) {
-          cb?.({ ok: false, error: "座位冲突：AI 座上有人" });
+          reply(cb, { ok: false, error: "座位冲突：AI 座上有人" });
           return;
         }
       }
       if (!ready) {
-        cb?.({ ok: false, error: "尚有空座：请等待棋友入座，或把空座设为编辑部 AI" });
+        reply(cb, { ok: false, error: "尚有空座：请等待棋友入座，或把空座设为编辑部 AI" });
         return;
       }
       const now = Date.now();
@@ -701,7 +751,7 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
           aiTokens[s] = t;
         }
       }
-      cb?.({ ok: true, aiTokens });
+      reply(cb, { ok: true, aiTokens });
       io?.to(r.code).emit("game-start", {
         moves: r.moves,
         settings: r.settings,
@@ -718,12 +768,12 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
       const code = String(data?.roomCode ?? "").trim();
       const r = rooms.get(code);
       if (!r) {
-        cb?.({ ok: false, error: "房间已失效（断线超过 5 分钟或对局已收束）" });
+        reply(cb, { ok: false, error: "房间已失效（断线超过 5 分钟或对局已收束）" });
         return;
       }
       const role = data?.token ? authPlayer(r, String(data.token)) : null;
       if (!role) {
-        cb?.({ ok: false, error: "会话凭证不匹配" });
+        reply(cb, { ok: false, error: "会话凭证不匹配" });
         return;
       }
       const slot = r.players[role]!;
@@ -739,7 +789,7 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
         }
       }
       socket.join(code);
-      cb?.({
+      reply(cb, {
         ok: true,
         roomCode: code,
         player: role,
@@ -841,10 +891,22 @@ export function startRelay(): Promise<{ http: HttpServer; port: number }> {
     /* —— 大厅：订阅 / 退订空房列表 —— */
     socket.on("lobby-watch", (cb?: (res: object) => void) => {
       socket.join(LOBBY_ROOM);
-      cb?.({ ok: true, rooms: lobbyList(), serverNow: Date.now() });
+      reply(cb, { ok: true, rooms: lobbyList(), serverNow: Date.now() });
     });
     socket.on("lobby-unwatch", () => {
       socket.leave(LOBBY_ROOM);
+    });
+
+    /* —— 跨实例大厅广告(陈列用;不产生房间状态) —— */
+    socket.on("lobby-advertise", (data: { entry?: unknown } | undefined) => {
+      const entry = adEntryOf(data?.entry);
+      if (!entry) return;
+      lobbyAds.set(entry.code, { entry, expiresAt: Date.now() + LOBBY_AD_TTL_MS });
+      broadcastLobby();
+    });
+    socket.on("lobby-unadvertise", (data: { code?: string } | undefined) => {
+      const code = String(data?.code ?? "").trim();
+      if (lobbyAds.delete(code)) broadcastLobby();
     });
 
     /* —— 意外断线：开 5 分钟保留窗（二人局判负窗；四人局出局窗） —— */
