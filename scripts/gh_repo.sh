@@ -27,11 +27,16 @@ case "${1:-}" in
     ;;
   actions)
     # 查看最近工作流运行状态
-    curl -s "${AUTH[@]}" "$API/actions/runs?per_page=5" \
+    curl -s "${AUTH[@]}" "$API/actions/runs?per_page=6" \
       | python3 -c '
 import json, sys
 for r in json.load(sys.stdin).get("workflow_runs", []):
-    print(f"{r[\"id\"]}  {r[\"name\"]:<14} {r[\"head_branch\"] or r[\"head_sha\"][:7]:<12} {r[\"status\"]:<12} {r.get(\"conclusion\") or \"\"}")'
+    rid = r["id"]
+    name = r["name"]
+    ref = r["head_branch"] or (r["head_sha"] or "")[:7]
+    st = r["status"]
+    cl = r.get("conclusion") or ""
+    print(f"run {rid}  {name}  ref={ref}  {st}  {cl}")'
     ;;
   run-log)
     # 用法: gh_repo.sh run-log <run_id>
