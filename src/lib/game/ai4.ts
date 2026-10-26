@@ -2,7 +2,9 @@
  * 四人局不再是双人零和（任一席率先抵线即终局），Negamax 结构不再适用，
  * 改用「竞速 + 拦截」策略族，全部基于 BFS 归途与挡板探针：
  *   1 学徒：最短路捡字，出手必是「有用的板」——拦领先者临门一道，不伤己路
- *   2 排字师：贪心 —— 落后时评估候选墙，延长领先者的最短归途（带应手校验）
+ *      （v3：非紧急的随手板增益门槛 2，不再为 +1 边际板挥霍弹药）
+ *   2 排字师：贪心 —— 落后时评估候选墙，延长领先者的最短归途（带应手校验，
+ *      v3：兼看次威胁廊道）
  *   3 总编：候选墙全量评估 + 领先者一步应手校验（拦得住才算数）
  *   4 社长：兼顾第二威胁、终局竞速精判、贴身紧急拦截
  * 探针：挡板位图设位 → 四席 BFS → 还原（无副作用，可高频调用）。
@@ -266,17 +268,22 @@ export function computeAiMove4(
   const second = opps[1];
   const myWalls = wallsLeftOf(state, me);
 
-  /* 2. 竞速判定：领先足够多、或对手已无板可拦 → 直接推进 */
+  /* 2. 竞速判定：领先足够多、或对手已无板可拦 → 直接推进
+   *    v3：裕度收窄（原 L3=1/L4=2）——四人局实测「领先即冲刺」胜过
+   *    「领先 1-2 步还继续放板」：放板烧一手节奏，等于白送对手半步；
+   *    社长保留 1 步裕度（配合其更精的板质，领先 1 步时仍可防守性落板） */
   const oppCanBlock = opps.some((o) => o.walls > 0);
-  const margin = level >= 4 ? 2 : level === 3 ? 1 : 0;
+  const margin = level >= 4 ? 1 : 0;
   const racing = myDist < leader.d - margin || (myDist <= leader.d && !oppCanBlock);
 
-  /* 3. 学徒：最短路 + 「有用的板」（v2：拦得有用才出手，不再随手乱放） */
+  /* 3. 学徒：最短路 + 「有用的板」（v3：拦得有用才出手，不再随手乱放；
+   *    非紧急的随手板增益门槛 2——与二人局学徒同准则） */
   if (level === 1) {
     if (myWalls > 0 && !racing) {
       /* 紧急 = 领先者临门（≤3 步）或已领先于我；平时 25% 概率也主动拦一道 */
       const urgent = leader.d <= 3 || leader.d <= myDist;
       if (urgent || Math.random() < 0.25) {
+        const minGain = urgent ? 1 : 2;
         const edges = pathEdges(state, leader.p, grids);
         const cands = candidatesFromEdges(edges, N).filter(
           (c) =>
@@ -287,7 +294,7 @@ export function computeAiMove4(
         /* 挑拉长领先者最多、且不伤（紧急时客忍小伤）己路的板；同好随手挑一块 */
         const harmCap = leader.d <= 2 ? 2 : leader.d <= 3 ? 1 : 0;
         const bests: WallCand[] = [];
-        let bestGain = 1;
+        let bestGain = minGain;
         for (const c of cands) {
           const probe = probeWall(grids, c, state, actives, before, N);
           if (!probe) continue;
@@ -314,7 +321,7 @@ export function computeAiMove4(
 
   /* 4. 拦截评估（排字师 / 总编 / 社长） */
   if (myWalls > 0 && !racing) {
-    const cap = level >= 4 ? 44 : level === 3 ? 32 : 20;
+    const cap = level >= 4 ? 48 : level === 3 ? 36 : 22;
     const cands: WallCand[] = [];
     const seen = new Set<string>();
     const takeFrom = (p: Player, limit: number) => {
@@ -331,13 +338,18 @@ export function computeAiMove4(
       }
     };
     takeFrom(leader.p, cap);
-    if (level >= 3 && second && second.d <= leader.d + 2) {
-      takeFrom(second.p, cap + 12);
+    if (level >= 2 && second && second.d <= leader.d + 2) {
+      /* v3：次威胁廊道全档都看（排字师窗口稍窄），领先者被封后有备无患 */
+      takeFrom(second.p, cap + (level >= 3 ? 12 : 8));
     }
 
     let bestCand: WallCand | null = null;
     let bestScore = -Infinity;
     let bestGainLeader = 0;
+    /* v3：硬性自伤上限（与学徒同标准）。旧版只有 -3×harmMe 软惩罚，
+     * 大增益板仍会带着 2-3 步自伤混过门槛——四人局里自伤等于给
+     * 另外两家免费搭车（实测：学徒凭「从不自坑」反超高档的根源）。 */
+    const harmCap = leader.d <= 2 ? 2 : leader.d <= 3 ? 1 : 0;
     for (const c of cands) {
       const probe = probeWall(grids, c, state, actives, before, N);
       if (!probe) continue;
@@ -347,6 +359,7 @@ export function computeAiMove4(
         if (o.p !== leader.p) gainOthers += probe.gains.get(o.p) ?? 0;
       }
       const harmMe = probe.gains.get(me) ?? 0;
+      if (harmMe > harmCap) continue;
       let score = 2 * gainLeader + gainOthers - 3 * Math.max(0, harmMe);
       if (level >= 2) {
         // 应手校验：领先者走一步后与我（也走一步）的归途差（v2：排字师也看）

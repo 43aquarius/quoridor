@@ -15,26 +15,29 @@ const pool: Worker[] = [];
 let poolBroken = false;
 
 function workerTimeoutMs(level: AiLevel): number {
-  if (level >= 4) return 9500; /* 社长 5400ms × 1.55 尺寸缩放上限 8370ms，留余量 */
-  if (level === 3) return 4200; /* 总编 2000ms × 1.55 = 3100ms */
+  if (level >= 4) return 10500; /* 社长 6000ms × 1.55 尺寸缩放上限 9300ms，留余量 */
+  if (level === 3) return 4800; /* 总编 2600ms × 1.55 = 4030ms */
+  if (level === 2) return 2600; /* 排字师 800ms × 1.55 = 1240ms */
   return 2000;
 }
 
 /* 同步兜底的紧预算：Worker 不可用时避免长时间阻塞主线程 */
 function syncBudgetMs(level: AiLevel): number {
-  if (level >= 4) return 1500;
-  if (level === 3) return 1100;
-  if (level === 2) return 420;
+  if (level >= 4) return 1700;
+  if (level === 3) return 1300;
+  if (level === 2) return 560;
   return 280;
 }
 
-/* 根分裂并行度：总编与社长档（用户要棋力优先的档位）且核数宽裕时启用。
- * 预留 2 核给 UI/渲染；上限 4（根分裂增益有限，功耗与收益平衡）。
- * 其余场景单 worker。v4：总编档也启用（用户两轮反馈均要求更强）。 */
+/* 根分裂并行度：排字师（2 切片）/总编与社长档（≤4 切片）且核数宽裕时启用。
+ * 预留 2 核给 UI/渲染；排字师上限 2（档位增量有限，够看破两步陷阱）；
+ * 总编/社长上限 4（根分裂增益有限，功耗与收益平衡）。
+ * v4：总编档启用；v5：排字师档也启用（用户两轮反馈均要求更强）。 */
 function parallelism(state: GameState, level: AiLevel): number {
-  if (state.playerCount === 4 || level < 3) return 1;
+  if (state.playerCount === 4 || level < 2) return 1;
   const hc = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 1 : 1;
   if (hc < 6) return 1;
+  if (level === 2) return Math.min(2, hc - 2);
   return Math.min(4, hc - 2);
 }
 

@@ -1,6 +1,6 @@
 /* 步步为营 —— AI 对手四档（编辑职位命名）· 强化版
  * 1 学徒：最短路捡字 + 「有用的板」——拦你临门一脚的道、不伤己路才出手（保留随手的可爱）
- * 2 排字师：浅层搜索（深度 3，按路径差增益排序候选）——看得破一步陷阱的聪明贪心
+ * 2 排字师：浅层搜索（深度 4，按路径差增益排序候选）——看得破两步陷阱的聪明贪心
  * 3 总编：α-β + PVS 主变例搜索 + Zobrist 置换表 + 杀手着法/历史启发
  * 4 社长：搜索预算全开（更深度数、更大候选窗、更久预算），终局纯竞速精确判胜
  *
@@ -24,6 +24,17 @@
  * I. LMR 晚序降深 + 反向后手剪枝 + 根期望窗口：同预算多搜约 1.5-2 层。
  * J. 置换表跨回合持久化（全哈希补尺寸盐，防跨规格碰撞），根着法带 TT 推荐。
  * K. 候选生成补自卫侧板（列向 v 板），防侧向挤压。
+ *
+ * 第三轮强化（v5，用户二次要求全面加强）：
+ * L. 学徒 v3：①放板锚点窗从「对手身边 ±3 盒」扩展到「对手最短路前方
+ *    6 格沿途」——拦在必经之道上而非人旁边；②走子改用距离场选步
+ *    （合法着法中落点距离最小者），跳子/绕行天然正确；③对手无板
+ *    且我不落后时纯竞速不浪费板，对手无板时终局封路视为紧急基本功；
+ *    ④非紧急的随手板增益门槛 1→2，不再为 +1 的边际板挥霍弹药。
+ * M. 排字师：深度 3→4、预算 520→800ms、内层板窗 12→14、根板窗 16→20，
+ *    且首次吃上根分裂并行（2 切片）——看得破两步陷阱。
+ * N. 总编：预算 2000→2600ms、9 路深度 11→12、板窗 18→20/28→32。
+ * O. 社长：预算 5400→6000ms、9 路深度 14→15、板窗 20→22/36→40。
  *
  * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
  */
@@ -97,29 +108,29 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.2 : 1.55;
   if (level === 2) {
     return {
-      budgetMs: Math.round(520 * sizeScale),
-      maxDepth: ENV_DEPTH ?? 3,
-      wallLimit: ENV_WALLS ?? 12,
-      rootWallLimit: ENV_ROOT ?? 16,
+      budgetMs: Math.round(800 * sizeScale), /* v5：520→800，深度 4 需要喘息空间 */
+      maxDepth: ENV_DEPTH ?? 4,
+      wallLimit: ENV_WALLS ?? 14,
+      rootWallLimit: ENV_ROOT ?? 20,
       qs: false,
     };
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(2000 * sizeScale),
-      maxDepth: ENV_DEPTH ?? (size <= 5 ? 11 : size === 7 ? 10 : size === 9 ? 11 : size === 11 ? 8 : 7),
-      wallLimit: ENV_WALLS ?? 18,
-      rootWallLimit: ENV_ROOT ?? 28,
+      budgetMs: Math.round(2600 * sizeScale), /* v5：2000→2600 */
+      maxDepth: ENV_DEPTH ?? (size <= 5 ? 12 : size === 7 ? 11 : size === 9 ? 12 : size === 11 ? 8 : 7),
+      wallLimit: ENV_WALLS ?? 20,
+      rootWallLimit: ENV_ROOT ?? 32,
       qs: false, /* 消融：短预算下 QS 深度损失 > 战术收益，关 */
     };
   }
-  /* level 4 社长：最强档全预算（用户要求棋力优先，应手最长约 5.5s，
+  /* level 4 社长：最强档全预算（用户要求棋力优先，应手最长约 6.2s，
    * 外推早停后典型 2.5-3.5s；尺寸缩放限制大开本的上限） */
   return {
-    budgetMs: Math.round(5400 * sizeScale),
-    maxDepth: ENV_DEPTH ?? (size <= 5 ? 15 : size === 7 ? 14 : size === 9 ? 14 : size === 11 ? 10 : 8),
-    wallLimit: ENV_WALLS ?? 20,
-    rootWallLimit: ENV_ROOT ?? 36,
+    budgetMs: Math.round(6000 * sizeScale), /* v5：5400→6000 */
+    maxDepth: ENV_DEPTH ?? (size <= 5 ? 15 : size === 7 ? 14 : size === 9 ? 15 : size === 11 ? 10 : 8),
+    wallLimit: ENV_WALLS ?? 22,
+    rootWallLimit: ENV_ROOT ?? 40,
     qs: true, /* 预算充裕：QS 战术解析净增益 +37%（对决 75% vs 38%） */
   };
 }
@@ -1958,32 +1969,76 @@ function apprenticeMove(state: GameState): AiDecision {
   const myD = coreDist(core, me);
   const opD = coreDist(core, op);
   const wallsLeft = me === "A" ? state.wallsA : state.wallsB;
+  const opWallsLeft = op === "A" ? state.wallsA : state.wallsB;
 
-  /* 学徒的板（v2：不再是随手乱放）——只在「有用」时出手：
-   * 必须拉长对手归途 ≥1，且不伤己路（紧急拦门时容忍小伤）。
-   * 紧急 = 对手临门（≤3 步）或领先于我；平时仍有 22% 概率主动拦一道，
-   * 多块同样好时随手挑一块——保留「随手排铅条」的可爱。 */
-  if (wallsLeft > 0) {
-    const urgent = opD <= 3 || opD < myD;
+  /* 学徒的板（v3）——拦在必经之道上：
+   * - 锚点窗：对手身边 ±3 盒 + 最短路前方 6 格沿途（各扩一圈）——
+   *   旧版只拦「人旁边」，对手绕两步就绕过去了；拦在路上才真的拉长归途；
+   * - 纯竞速免动手：对手已无板且我不落后时寸板不花，撒腿就跑；
+   * - 终局封路是基本功：对手无板时视为紧急（不伤己路才出手）；
+   * - 紧急（对手临门 ≤3 / 领先于我 / 对手无板）增益 ≥1 即拦；
+   *   平时 22% 随手拦一道，但增益门槛 2——不为 +1 的边际板挥霍弹药；
+   * - 多块同样好时随手挑一块——保留「随手排铅条」的可爱。 */
+  if (wallsLeft > 0 && !(opWallsLeft === 0 && myD <= opD)) {
+    const urgent = opD <= 3 || opD < myD || opWallsLeft === 0;
     if (urgent || Math.random() < 0.22) {
+      const minGain = urgent ? 1 : 2;
       const harmCap = opD <= 2 ? 2 : opD <= 3 ? 1 : 0;
-      const bests: Array<{ x: number; y: number; o: Orientation; gain: number }> = [];
-      let bestGain = 1;
-      for (let x = Math.max(0, opPos.x - 3); x <= Math.min(N - 2, opPos.x + 3); x++) {
-        for (let y = Math.max(0, opPos.y - 3); y <= Math.min(N - 2, opPos.y + 3); y++) {
-          for (const o of ["h", "v"] as Orientation[]) {
-            if (wallConflicts(state.walls, x, y, o)) continue;
-            const probe = coreProbeWall(core, x, y, o);
-            if (probe.pathCut) continue;
-            const opGain = (op === "A" ? probe.dA : probe.dB) - opD;
-            const myHarm = (me === "A" ? probe.dA : probe.dB) - myD;
-            if (opGain < bestGain || myHarm > harmCap) continue;
-            if (opGain > bestGain) {
-              bestGain = opGain;
-              bests.length = 0;
-            }
-            bests.push({ x, y, o, gain: opGain });
+      const anchors = new Set<number>();
+      const addBox = (cx: number, cy: number, r: number) => {
+        for (let x = Math.max(0, cx - r); x <= Math.min(N - 2, cx + r); x++) {
+          for (let y = Math.max(0, cy - r); y <= Math.min(N - 2, cy + r); y++) {
+            anchors.add(x * 100 + y);
           }
+        }
+      };
+      addBox(opPos.x, opPos.y, 3);
+      /* 对手最短路前方 6 格（沿距离场递降走出一条，不必是最优那条——够用） */
+      {
+        const buf = goalDists(core);
+        const base = op === "A" ? 0 : MAX_CELLS;
+        const grids = { h: core.h, v: core.v };
+        let cx = opPos.x;
+        let cy = opPos.y;
+        let d = buf[base + cy * N + cx];
+        for (let step = 0; step < 6 && d > 0; step++) {
+          let nx = -1;
+          let ny = -1;
+          for (const [dx, dy] of _pcDirs) {
+            const tx = cx + dx;
+            const ty = cy + dy;
+            if (tx < 0 || tx > N - 1 || ty < 0 || ty > N - 1) continue;
+            if (edgeBlockedG(grids, cx, cy, dx, dy)) continue;
+            if (buf[base + ty * N + tx] === d - 1) {
+              nx = tx;
+              ny = ty;
+              break;
+            }
+          }
+          if (nx < 0) break;
+          addBox(nx, ny, 1);
+          cx = nx;
+          cy = ny;
+          d--;
+        }
+      }
+      const bests: Array<{ x: number; y: number; o: Orientation }> = [];
+      let bestGain = minGain;
+      for (const key of anchors) {
+        const x = Math.floor(key / 100);
+        const y = key % 100;
+        for (const o of ["h", "v"] as Orientation[]) {
+          if (wallConflicts(state.walls, x, y, o)) continue;
+          const probe = coreProbeWall(core, x, y, o);
+          if (probe.pathCut) continue;
+          const opGain = (op === "A" ? probe.dA : probe.dB) - opD;
+          const myHarm = (me === "A" ? probe.dA : probe.dB) - myD;
+          if (opGain < bestGain || myHarm > harmCap) continue;
+          if (opGain > bestGain) {
+            bestGain = opGain;
+            bests.length = 0;
+          }
+          bests.push({ x, y, o });
         }
       }
       if (bests.length > 0) {
@@ -2010,18 +2065,43 @@ function apprenticeMove(state: GameState): AiDecision {
       label: "学徒摸到了终点",
     };
   }
-  /* 最短路下一步（对手占位时交给合法跳子表兜底） */
-  const step = shortestStepOnGrids(state, me);
+  /* v3 走子：合法着法里选「落点距离场最小」的——距离场不含对手占位，
+   * 但合法着法表已把对冲直跳/斜跳收全，跳子落点距离 -2 天然优先；
+   * 对手堵路时绕行步也按真实路长比较（旧版 BFS 首步 + 朝向兜底，
+   * 贴身缠斗时会走出横移臭棋）。同分随机挑一步，保留可爱。 */
   const from = from0(state, me);
-  const target =
-    step && legal.some((v) => v.x === step.x && v.y === step.y)
-      ? step
-      : pickToward(legal, from, goal) ?? legal[0];
+  {
+    const buf = goalDists(core);
+    const base = me === "A" ? 0 : MAX_CELLS;
+    let bestD = Infinity;
+    const bestMoves: Vec[] = [];
+    for (const v of legal) {
+      const d = buf[base + v.y * N + v.x];
+      if (d < 0) continue;
+      if (d < bestD) {
+        bestD = d;
+        bestMoves.length = 0;
+      }
+      if (d === bestD) bestMoves.push(v);
+    }
+    if (bestMoves.length > 0) {
+      const target = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+      return {
+        payload: {
+          type: "pawn",
+          from,
+          to: { ...target },
+        },
+        label: "学徒循最短路径捡字",
+      };
+    }
+  }
+  const target = pickToward(legal, from, goal) ?? legal[0];
   if (target) {
     return {
       payload: {
         type: "pawn",
-        from: me === "A" ? state.posA : state.posB,
+        from,
         to: { ...target },
       },
       label: "学徒循最短路径捡字",
@@ -2030,54 +2110,7 @@ function apprenticeMove(state: GameState): AiDecision {
   return fallbackDecision(state, me);
 }
 
-/* 学徒用：在位图上求最短路首步（忽略对手占位的近似） */
-function shortestStepOnGrids(state: GameState, p: Player): Vec | null {
-  const N = boardSize(state);
-  const grids = buildWallGrids(state.walls, N);
-  const from = p === "A" ? state.posA : state.posB;
-  const goal = goalRow(p, N);
-  if (from.y === goal) return null;
-  const dist = new Int16Array(N * N).fill(-1);
-  const parent = new Int16Array(N * N).fill(-1);
-  const start = from.y * N + from.x;
-  dist[start] = 0;
-  const queue: number[] = [start];
-  let goalIdx = -1;
-  let head = 0;
-  while (head < queue.length) {
-    const cur = queue[head++];
-    const cx = cur % N;
-    const cy = (cur - cx) / N;
-    if (cy === goal) {
-      goalIdx = cur;
-      break;
-    }
-    const dirs: Array<[number, number]> = [
-      [0, -1],
-      [0, 1],
-      [-1, 0],
-      [1, 0],
-    ];
-    for (const [dx, dy] of dirs) {
-      const nx = cx + dx;
-      const ny = cy + dy;
-      if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
-      if (edgeBlockedG(grids, cx, cy, dx, dy)) continue;
-      const ni = ny * N + nx;
-      if (dist[ni] >= 0) continue;
-      dist[ni] = dist[cur] + 1;
-      parent[ni] = cur;
-      queue.push(ni);
-    }
-  }
-  if (goalIdx < 0) return null;
-  let cur = goalIdx;
-  while (parent[cur] !== start && parent[cur] !== -1) cur = parent[cur];
-  if (parent[cur] !== start) return null;
-  const x = cur % N;
-  const y = (cur - x) / N;
-  return { x, y };
-}
+/* （v3 起学徒改用距离场选步，本函数退役删除） */
 
 function from0(state: GameState, p: Player): Vec {
   return p === "A" ? state.posA : state.posB;
