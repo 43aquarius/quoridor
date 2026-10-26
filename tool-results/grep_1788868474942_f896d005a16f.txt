@@ -1,0 +1,172 @@
+/home/z/my-project/src/components/quoridor/SkinFilmStrip.tsx:59:        className="relative mt-1 cursor-ew-resize"
+/home/z/my-project/src/components/quoridor/VictoryOverlay.tsx:152:            size="lg"
+/home/z/my-project/src/components/quoridor/VictoryOverlay.tsx:162:            size="lg"
+/home/z/my-project/src/components/quoridor/VictoryOverlay.tsx:171:            size="lg"
+/home/z/my-project/src/components/quoridor/VictoryOverlay.tsx:180:            size="lg"
+/home/z/my-project/src/components/quoridor/RoomView.tsx:324:          size="sm"
+/home/z/my-project/src/components/quoridor/Board.tsx:232:              <text x={i * CELL + CELL / 2 - 6} y={932} textAnchor="middle">{"abcdefghi"[i]}</text>
+/home/z/my-project/src/components/quoridor/Board.tsx:233:              <text x={i * CELL + CELL / 2 - 6} y={-8} textAnchor="middle">{"abcdefghi"[i]}</text>
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:302:                  <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="上一手" onClick={() => replayTo(Math.max(0, (replayIdx ?? 1) - 1))}>
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:307:                    size="icon"
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:319:                    size="icon"
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:334:                    size="icon"
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:355:          size="sm"
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:369:              size="sm"
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:400:          size="sm"
+/home/z/my-project/src/components/quoridor/Sidebar.tsx:411:          size="sm"
+/home/z/my-project/src/components/quoridor/ArchiveView.tsx:71:              size="sm"
+/home/z/my-project/src/components/quoridor/ArchiveView.tsx:80:              size="sm"
+/home/z/my-project/src/components/quoridor/ArchiveView.tsx:183:          size="sm"
+/home/z/my-project/src/components/quoridor/SetupView.tsx:102:          size="sm"
+/home/z/my-project/src/components/quoridor/CursorTrail.tsx:29:    const resize = () => {
+/home/z/my-project/src/components/quoridor/CursorTrail.tsx:33:    resize();
+/home/z/my-project/src/components/quoridor/CursorTrail.tsx:34:    window.addEventListener("resize", resize);
+/home/z/my-project/src/components/quoridor/CursorTrail.tsx:76:      window.removeEventListener("resize", resize);
+/home/z/my-project/src/components/quoridor/ContentsView.tsx:34:    en: "TWO READERS, ONE BOARD",
+/home/z/my-project/src/components/quoridor/ContentsView.tsx:107:              size="sm"
+/home/z/my-project/src/components/quoridor/ContentsView.tsx:115:              size="sm"
+/home/z/my-project/src/app/globals.css:117:  background-size: 260px 260px;
+/home/z/my-project/src/components/quoridor/RulesView.tsx:87:  const size = 9;
+/home/z/my-project/src/components/quoridor/RulesView.tsx:94:        points={`${x2},${y2} ${bx + Math.cos(ang + 2.5) * size},${by + Math.sin(ang + 2.5) * size} ${bx + Math.cos(ang - 2.5) * size},${by + Math.sin(ang - 2.5) * size}`}
+/home/z/my-project/src/components/quoridor/RulesView.tsx:303:          size="sm"
+/home/z/my-project/src/lib/game/poster.ts:160:    ctx.fillText("abcdefghi"[i], BX + i * cell + cell / 2 - 8, BY + BS + 34);
+/home/z/my-project/src/lib/game/types.ts:87:export const BOARD = 9;
+/home/z/my-project/src/lib/game/types.ts:88:export const WALLS_PER_PLAYER = 10;
+/home/z/my-project/src/lib/game/types.ts:94:    wallsA: WALLS_PER_PLAYER,
+/home/z/my-project/src/lib/game/types.ts:95:    wallsB: WALLS_PER_PLAYER,
+/home/z/my-project/src/lib/game/types.ts:114:const COL_LETTERS = "abcdefghi";
+/home/z/my-project/src/lib/game/archive.ts:4:import { WALLS_PER_PLAYER } from "./types";
+/home/z/my-project/src/lib/game/archive.ts:72:    `全局 ${e.moveCount} 手：行棋 ${e.moveCount - wallMoves} 手，放板 ${wallMoves} 手；挡板存量合计 ${WALLS_PER_PLAYER * 2 - wallMoves} 根未用。`,
+/home/z/my-project/src/components/ui/select.tsx:29:  size = "default",
+/home/z/my-project/src/components/ui/select.tsx:33:  size?: "sm" | "default"
+/home/z/my-project/src/components/ui/select.tsx:38:      data-size={size}
+/home/z/my-project/src/components/ui/select.tsx:40:        "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex w-fit items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/select.tsx:47:        <ChevronDownIcon className="size-4 opacity-50" />
+/home/z/my-project/src/components/ui/select.tsx:110:        "focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+/home/z/my-project/src/components/ui/select.tsx:115:      <span className="absolute right-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/select.tsx:117:          <CheckIcon className="size-4" />
+/home/z/my-project/src/components/ui/select.tsx:151:      <ChevronUpIcon className="size-4" />
+/home/z/my-project/src/components/ui/select.tsx:169:      <ChevronDownIcon className="size-4" />
+/home/z/my-project/src/components/ui/alert.tsx:7:  "relative w-full rounded-lg border px-4 py-3 text-sm grid has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] grid-cols-[0_1fr] has-[>svg]:gap-x-3 gap-y-0.5 items-start [&>svg]:size-4 [&>svg]:translate-y-0.5 [&>svg]:text-current",
+/home/z/my-project/src/components/ui/badge.tsx:8:  "inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+/home/z/my-project/src/components/ui/toggle.tsx:10:  "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-accent data-[state=on]:text-accent-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] outline-none transition-[color,box-shadow] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive whitespace-nowrap",
+/home/z/my-project/src/components/ui/toggle.tsx:18:      size: {
+/home/z/my-project/src/components/ui/toggle.tsx:26:      size: "default",
+/home/z/my-project/src/components/ui/toggle.tsx:34:  size,
+/home/z/my-project/src/components/ui/toggle.tsx:41:      className={cn(toggleVariants({ variant, size, className }))}
+/home/z/my-project/src/components/ui/sheet.tsx:76:          <XIcon className="size-4" />
+/home/z/my-project/src/components/ui/breadcrumb.tsx:75:      className={cn("[&>svg]:size-3.5", className)}
+/home/z/my-project/src/components/ui/breadcrumb.tsx:92:      className={cn("flex size-9 items-center justify-center", className)}
+/home/z/my-project/src/components/ui/breadcrumb.tsx:95:      <MoreHorizontal className="size-4" />
+/home/z/my-project/src/components/ui/tooltip.tsx:55:        <TooltipPrimitive.Arrow className="bg-primary fill-primary z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
+/home/z/my-project/src/components/ui/pagination.tsx:42:} & Pick<React.ComponentProps<typeof Button>, "size"> &
+/home/z/my-project/src/components/ui/pagination.tsx:48:  size = "icon",
+/home/z/my-project/src/components/ui/pagination.tsx:59:          size,
+/home/z/my-project/src/components/ui/pagination.tsx:75:      size="default"
+/home/z/my-project/src/components/ui/pagination.tsx:92:      size="default"
+/home/z/my-project/src/components/ui/pagination.tsx:110:      className={cn("flex size-9 items-center justify-center", className)}
+/home/z/my-project/src/components/ui/pagination.tsx:113:      <MoreHorizontalIcon className="size-4" />
+/home/z/my-project/src/components/ui/switch.tsx:24:          "bg-background dark:data-[state=unchecked]:bg-foreground dark:data-[state=checked]:bg-primary-foreground pointer-events-none block size-4 rounded-full ring-0 transition-transform data-[state=checked]:translate-x-[calc(100%-2px)] data-[state=unchecked]:translate-x-0"
+/home/z/my-project/src/components/ui/dialog.tsx:72:            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+/home/z/my-project/src/components/ui/resizable.tsx:35:}: React.ComponentProps<typeof ResizablePrimitive.PanelResizeHandle> & {
+/home/z/my-project/src/components/ui/resizable.tsx:39:    <ResizablePrimitive.PanelResizeHandle
+/home/z/my-project/src/components/ui/resizable.tsx:49:          <GripVerticalIcon className="size-2.5" />
+/home/z/my-project/src/components/ui/resizable.tsx:52:    </ResizablePrimitive.PanelResizeHandle>
+/home/z/my-project/src/components/ui/navigation-menu.tsx:78:        className="relative top-[1px] ml-1 size-3 transition duration-300 group-data-[state=open]:rotate-180"
+/home/z/my-project/src/components/ui/navigation-menu.tsx:132:        "data-[active=true]:focus:bg-accent data-[active=true]:hover:bg-accent data-[active=true]:bg-accent/50 data-[active=true]:text-accent-foreground hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus-visible:ring-ring/50 [&_svg:not([class*='text-'])]:text-muted-foreground flex flex-col gap-1 rounded-sm p-2 text-sm transition-all outline-none focus-visible:ring-[3px] focus-visible:outline-1 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/tabs.tsx:45:        "data-[state=active]:bg-background dark:data-[state=active]:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring dark:data-[state=active]:border-input dark:data-[state=active]:bg-input/30 text-foreground dark:text-muted-foreground inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:shadow-sm [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/avatar.tsx:16:        "relative flex size-8 shrink-0 overflow-hidden rounded-full",
+/home/z/my-project/src/components/ui/avatar.tsx:31:      className={cn("aspect-square size-full", className)}
+/home/z/my-project/src/components/ui/avatar.tsx:45:        "bg-muted flex size-full items-center justify-center rounded-full",
+/home/z/my-project/src/components/ui/slider.tsx:56:          className="border-primary bg-background ring-ring/50 block size-4 shrink-0 rounded-full border shadow-sm transition-[color,box-shadow] hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50"
+/home/z/my-project/src/components/ui/menubar.tsx:106:        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/menubar.tsx:124:        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/menubar.tsx:130:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/menubar.tsx:132:          <CheckIcon className="size-4" />
+/home/z/my-project/src/components/ui/menubar.tsx:149:        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/menubar.tsx:154:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/menubar.tsx:156:          <CircleIcon className="size-2 fill-current" />
+/home/z/my-project/src/components/ui/context-menu.tsx:69:        "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/context-menu.tsx:129:        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/context-menu.tsx:147:        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/context-menu.tsx:153:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/context-menu.tsx:155:          <CheckIcon className="size-4" />
+/home/z/my-project/src/components/ui/context-menu.tsx:172:        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/context-menu.tsx:177:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/context-menu.tsx:179:          <CircleIcon className="size-2 fill-current" />
+/home/z/my-project/src/components/ui/radio-group.tsx:30:        "border-input text-primary focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 aspect-square size-4 shrink-0 rounded-full border shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
+/home/z/my-project/src/components/ui/radio-group.tsx:39:        <CircleIcon className="fill-primary absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2" />
+/home/z/my-project/src/components/ui/command.tsx:72:      <SearchIcon className="size-4 shrink-0 opacity-50" />
+/home/z/my-project/src/components/ui/command.tsx:150:        "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/toggle-group.tsx:13:  size: "default",
+/home/z/my-project/src/components/ui/toggle-group.tsx:20:  size,
+/home/z/my-project/src/components/ui/toggle-group.tsx:29:      data-size={size}
+/home/z/my-project/src/components/ui/toggle-group.tsx:36:      <ToggleGroupContext.Provider value={{ variant, size }}>
+/home/z/my-project/src/components/ui/toggle-group.tsx:47:  size,
+/home/z/my-project/src/components/ui/toggle-group.tsx:57:      data-size={context.size || size}
+/home/z/my-project/src/components/ui/toggle-group.tsx:61:          size: context.size || size,
+/home/z/my-project/src/components/ui/calendar.tsx:32:        "bg-background group/calendar p-3 [--cell-size:--spacing(8)] [[data-slot=card-content]_&]:bg-transparent [[data-slot=popover-content]_&]:bg-transparent",
+/home/z/my-project/src/components/ui/calendar.tsx:56:          "size-(--cell-size) aria-disabled:opacity-50 p-0 select-none",
+/home/z/my-project/src/components/ui/calendar.tsx:61:          "size-(--cell-size) aria-disabled:opacity-50 p-0 select-none",
+/home/z/my-project/src/components/ui/calendar.tsx:65:          "flex items-center justify-center h-(--cell-size) w-full px-(--cell-size)",
+/home/z/my-project/src/components/ui/calendar.tsx:69:          "w-full flex items-center text-sm font-medium justify-center h-(--cell-size) gap-1.5",
+/home/z/my-project/src/components/ui/calendar.tsx:84:            : "rounded-md pl-2 pr-1 flex items-center gap-1 text-sm h-8 [&>svg]:text-muted-foreground [&>svg]:size-3.5",
+/home/z/my-project/src/components/ui/calendar.tsx:95:          "select-none w-(--cell-size)",
+/home/z/my-project/src/components/ui/calendar.tsx:141:              <ChevronLeftIcon className={cn("size-4", className)} {...props} />
+/home/z/my-project/src/components/ui/calendar.tsx:148:                className={cn("size-4", className)}
+/home/z/my-project/src/components/ui/calendar.tsx:155:            <ChevronDownIcon className={cn("size-4", className)} {...props} />
+/home/z/my-project/src/components/ui/calendar.tsx:162:              <div className="flex size-(--cell-size) items-center justify-center text-center">
+/home/z/my-project/src/components/ui/calendar.tsx:192:      size="icon"
+/home/z/my-project/src/components/ui/calendar.tsx:204:        "data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground data-[range-middle=true]:bg-accent data-[range-middle=true]:text-accent-foreground data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-ring/50 dark:hover:text-accent-foreground flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:ring-[3px] data-[range-end=true]:rounded-md data-[range-end=true]:rounded-r-md data-[range-middle=true]:rounded-none data-[range-start=true]:rounded-md data-[range-start=true]:rounded-l-md [&>span]:text-xs [&>span]:opacity-70",
+/home/z/my-project/src/components/ui/scroll-area.tsx:21:        className="focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
+/home/z/my-project/src/components/ui/button.tsx:8:  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+/home/z/my-project/src/components/ui/button.tsx:24:      size: {
+/home/z/my-project/src/components/ui/button.tsx:28:        icon: "size-9",
+/home/z/my-project/src/components/ui/button.tsx:33:      size: "default",
+/home/z/my-project/src/components/ui/button.tsx:41:  size,
+/home/z/my-project/src/components/ui/button.tsx:53:      className={cn(buttonVariants({ variant, size, className }))}
+/home/z/my-project/src/components/ui/carousel.tsx:177:  size = "icon",
+/home/z/my-project/src/components/ui/carousel.tsx:186:      size={size}
+/home/z/my-project/src/components/ui/carousel.tsx:188:        "absolute size-8 rounded-full",
+/home/z/my-project/src/components/ui/carousel.tsx:207:  size = "icon",
+/home/z/my-project/src/components/ui/carousel.tsx:216:      size={size}
+/home/z/my-project/src/components/ui/carousel.tsx:218:        "absolute size-8 rounded-full",
+/home/z/my-project/src/components/ui/checkbox.tsx:17:        "peer border-input dark:bg-input/30 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground dark:data-[state=checked]:bg-primary data-[state=checked]:border-primary focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive size-4 shrink-0 rounded-[4px] border shadow-xs transition-shadow outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
+/home/z/my-project/src/components/ui/checkbox.tsx:26:        <CheckIcon className="size-3.5" />
+/home/z/my-project/src/components/ui/sidebar.tsx:33:const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+/home/z/my-project/src/components/ui/sidebar.tsx:100:        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
+/home/z/my-project/src/components/ui/sidebar.tsx:268:      size="icon"
+/home/z/my-project/src/components/ui/sidebar.tsx:269:      className={cn("size-7", className)}
+/home/z/my-project/src/components/ui/sidebar.tsx:295:        "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+/home/z/my-project/src/components/ui/sidebar.tsx:296:        "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+/home/z/my-project/src/components/ui/sidebar.tsx:408:        "text-sidebar-foreground/70 ring-sidebar-ring flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium outline-hidden transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+/home/z/my-project/src/components/ui/sidebar.tsx:429:        "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground absolute top-3.5 right-3 flex aspect-square w-5 items-center justify-center rounded-md p-0 outline-hidden transition-transform focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+/home/z/my-project/src/components/ui/sidebar.tsx:477:  "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden ring-sidebar-ring transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+/home/z/my-project/src/components/ui/sidebar.tsx:485:      size: {
+/home/z/my-project/src/components/ui/sidebar.tsx:493:      size: "default",
+/home/z/my-project/src/components/ui/sidebar.tsx:502:  size = "default",
+/home/z/my-project/src/components/ui/sidebar.tsx:518:      data-size={size}
+/home/z/my-project/src/components/ui/sidebar.tsx:520:      className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
+/home/z/my-project/src/components/ui/sidebar.tsx:564:        "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground peer-hover/menu-button:text-sidebar-accent-foreground absolute top-1.5 right-1 flex aspect-square w-5 items-center justify-center rounded-md p-0 outline-hidden transition-transform focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0",
+/home/z/my-project/src/components/ui/sidebar.tsx:567:        "peer-data-[size=sm]/menu-button:top-1",
+/home/z/my-project/src/components/ui/sidebar.tsx:568:        "peer-data-[size=default]/menu-button:top-1.5",
+/home/z/my-project/src/components/ui/sidebar.tsx:569:        "peer-data-[size=lg]/menu-button:top-2.5",
+/home/z/my-project/src/components/ui/sidebar.tsx:591:        "peer-data-[size=sm]/menu-button:top-1",
+/home/z/my-project/src/components/ui/sidebar.tsx:592:        "peer-data-[size=default]/menu-button:top-1.5",
+/home/z/my-project/src/components/ui/sidebar.tsx:593:        "peer-data-[size=lg]/menu-button:top-2.5",
+/home/z/my-project/src/components/ui/sidebar.tsx:623:          className="size-4 rounded-md"
+/home/z/my-project/src/components/ui/sidebar.tsx:671:  size = "md",
+/home/z/my-project/src/components/ui/sidebar.tsx:677:  size?: "sm" | "md"
+/home/z/my-project/src/components/ui/sidebar.tsx:686:      data-size={size}
+/home/z/my-project/src/components/ui/sidebar.tsx:689:        "text-sidebar-foreground ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground [&>svg]:text-sidebar-accent-foreground flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 outline-hidden focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0",
+/home/z/my-project/src/components/ui/sidebar.tsx:691:        size === "sm" && "text-xs",
+/home/z/my-project/src/components/ui/sidebar.tsx:692:        size === "md" && "text-sm",
+/home/z/my-project/src/components/ui/accordion.tsx:44:        <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 translate-y-0.5 transition-transform duration-200" />
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:77:        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:95:        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:101:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:103:          <CheckIcon className="size-4" />
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:131:        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:136:      <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:138:          <CircleIcon className="size-2 fill-current" />
+/home/z/my-project/src/components/ui/dropdown-menu.tsx:220:      <ChevronRightIcon className="ml-auto size-4" />

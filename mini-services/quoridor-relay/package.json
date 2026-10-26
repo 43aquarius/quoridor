@@ -1,0 +1,12 @@
+{
+  "name": "quoridor-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "步步为营 —— 在线对战轻量 WebSocket relay（4 位房间码 / 断线 5 分钟保留）",
+  "scripts": {
+    "dev": "bun --hot index.ts"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1"
+  }
+}

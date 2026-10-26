@@ -1,0 +1,193 @@
+"use client";
+
+/* 全书装帧：纸面噪点、刊头 running head、页码 folio、
+ * 视图切换 cross-fade + 水平滑动（翻页语言），riso 光标拖尾。
+ * 浏览器历史集成：每次视图切换 push 一条同名历史条目，
+ * 手机返回键 / 浏览器后退 → 回到上一视图而非退出站点。
+ */
+
+import { useEffect, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useQuoridor, type View } from "@/store/game-store";
+import { skinById } from "@/lib/game/types";
+import { HeroView } from "./HeroView";
+import { ContentsView } from "./ContentsView";
+import { SetupView } from "./SetupView";
+import { LocalSetupView } from "./LocalSetupView";
+import { QuadSetupView } from "./QuadSetupView";
+import { RoomView } from "./RoomView";
+import { GameView } from "./GameView";
+import { RulesView } from "./RulesView";
+import { ArchiveView } from "./ArchiveView";
+import { CursorTrail } from "./CursorTrail";
+import { PosterModal } from "./PosterModal";
+import { GithubMark, GITHUB_REPO_URL } from "./GithubMark";
+
+const PAGE_LABEL: Record<string, string> = {
+  hero: "封面",
+  contents: "目 录",
+  setup: "第Ⅰ章 · 单人对弈",
+  localsetup: "第Ⅱ章 · 双人同屏",
+  quadsetup: "第Ⅲ章 · 四人围坐",
+  room: "第Ⅳ章 · 在线对战",
+  game: "对局页",
+  rules: "第Ⅴ章 · 规则",
+  archive: "第Ⅵ章 · 棋谱档案馆",
+};
+
+const FOLIO: Record<string, string> = {
+  hero: "F",
+  contents: "i",
+  setup: "1",
+  localsetup: "2",
+  quadsetup: "3",
+  room: "4",
+  game: "∞",
+  rules: "5",
+  archive: "6",
+};
+
+const variants = {
+  enter: { opacity: 0, x: 56 },
+  center: { opacity: 1, x: 0 },
+  exit: { opacity: 0, x: -56 },
+};
+
+export function QuoridorApp() {
+  const view = useQuoridor((s) => s.view);
+  const skin = useQuoridor((s) => s.skin);
+  const posterOpen = useQuoridor((s) => s.posterOpen);
+  const playerCount = useQuoridor((s) => s.state?.playerCount);
+
+  /* —— 浏览器历史集成（手机返回键修复） ——
+   * 视图切换是纯 store 状态，不产生浏览器历史条目——用户从首页
+   * 一路走进对局页后，历史栈仍只有进站一条，手机返回键直接退出
+   * 网页。这里把每次视图切换同步成一条 pushState（state 携带视图
+   * 名，URL 不变）；popstate 时恢复历史条目中的视图。
+   * 关键：合并而非覆盖 history.state——Next.js 路由器在 state 里
+   * 维护自己的内部键（如 __NA），抹掉会让 back 时触发硬导航整页
+   * 重载而非同文档 popstate。suppressingRef：popstate 恢复引发的
+   * view 变化不再 push（避免又叉出无穷多历史）。 */
+  const suppressingRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof history === "undefined") return;
+    const initial = useQuoridor.getState().view;
+    try {
+      history.replaceState({ ...history.state, qv: initial }, "");
+    } catch {
+      /* 隐私模式等 replaceState 不可用：返回键退回原生行为 */
+    }
+    const unsub = useQuoridor.subscribe((s) => {
+      if (suppressingRef.current) return;
+      const qv = s.view;
+      try {
+        if (history.state?.qv !== qv) history.pushState({ ...history.state, qv }, "");
+      } catch {
+        /* noop */
+      }
+    });
+    const onPop = (e: PopStateEvent) => {
+      const qv = (e.state as { qv?: View } | null)?.qv;
+      if (!qv || qv === useQuoridor.getState().view) return;
+      suppressingRef.current = true;
+      useQuoridor.getState().setView(qv);
+      suppressingRef.current = false;
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      unsub();
+      window.removeEventListener("popstate", onPop);
+    };
+  }, []);
+
+  /* 挂载后（hydration 已完成）再从 localStorage 恢复持久化偏好。
+   * 初始渲染用确定性默认值，保证 SSR HTML 与客户端首帧完全一致，
+   * 避免 skin-xx 类名等属性 mismatch。 */
+  useEffect(() => {
+    useQuoridor.getState().hydrate();
+  }, []);
+
+  return (
+    <div
+      className={`skin-${skin} relative min-h-[100svh] w-full overflow-x-clip bg-paper text-ink`}
+    >
+      {playerCount === 4 && <FourpColorScope />}
+      {/* 纸面噪点 */}
+      <div className="noise-overlay" aria-hidden />
+      {/* riso 光标拖尾 */}
+      <CursorTrail />
+
+      {/* 刊头（非封面时显示） */}
+      {view !== "hero" && (
+        <header className="pointer-events-none fixed inset-x-0 top-0 z-30 flex items-center justify-between px-5 py-2.5 mix-blend-multiply sm:px-8">
+          <span className="font-mono text-[9px] tracking-[0.35em] text-ink/50">
+            步步为营 · QUORIDOR — 限量印刷棋谱专著
+          </span>
+          <span className="flex items-center gap-4">
+            <span className="font-mono text-[9px] tracking-[0.35em] text-ink/50">
+              {skinById(skin).label} 套印
+            </span>
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="开源仓库 · GitHub"
+              aria-label="开源仓库 GitHub"
+              className="pointer-events-auto text-ink/55 transition-colors hover:text-ink"
+            >
+              <GithubMark className="h-4 w-4" />
+            </a>
+          </span>
+        </header>
+      )}
+
+      {/* 页码（非封面、非对局时显示） */}
+      {view !== "hero" && view !== "game" && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-3 z-30 text-center font-mono text-[10px] tracking-[0.4em] text-ink/45">
+          — {FOLIO[view] ?? "·"} —
+        </div>
+      )}
+
+      <main className="relative z-10 flex min-h-[100svh] flex-col">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={view}
+            variants={variants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+            className="flex flex-1 flex-col"
+          >
+            {view === "hero" && <HeroView />}
+            {view === "contents" && <ContentsView />}
+            {view === "setup" && <SetupView />}
+            {view === "localsetup" && <LocalSetupView />}
+            {view === "quadsetup" && <QuadSetupView />}
+            {view === "room" && <RoomView />}
+            {view === "game" && <GameView />}
+            {view === "rules" && <RulesView />}
+            {view === "archive" && <ArchiveView />}
+          </motion.div>
+        </AnimatePresence>
+      </main>
+
+      <span className="sr-only" aria-live="polite">
+        {PAGE_LABEL[view]}
+      </span>
+
+      {posterOpen && <PosterModal />}
+    </div>
+  );
+}
+
+/* 四色域：给根元素追加 fourp 类（钉死红/蓝/苔绿/墨黑四色套印） */
+function FourpColorScope() {
+  useEffect(() => {
+    document.documentElement.classList.add("fourp");
+    return () => {
+      document.documentElement.classList.remove("fourp");
+    };
+  }, []);
+  return null;
+}
