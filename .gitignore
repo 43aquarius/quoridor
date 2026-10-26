@@ -1,10 +1,40 @@
+# —— 平台与会话内部文件 ——
 skills/
+worklog.md
+tool-results/
+download/
+next-env.d.ts
+*.tsbuildinfo
+
+# —— 依赖与构建 ——
 node_modules/
 .next/
+
+# —— 运行日志 ——
 server.log
 dev.log
-*.tsbuildinfo
+dev-boot.log
 .zscripts/*.log
 .zscripts/dev.pid
-next-env.d.ts
-tool-results/
+
+# —— 运行时数据（部署时由 prisma db push 初始化） ——
+db/*.db
+
+# —— 开发验证产物（scripts/ 下的源码工具入库，二进制/日志产物不入库） ——
+scripts/*.png
+scripts/*.log
+scripts/r3-trace.json
+
+# —— Android 构建产物（签名库 android/keystore/ 需入库，注意勿加 *.jks） ——
+.gradle/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.iml
+
+# —— 平台模板残留（保留在磁盘，不入库） ——
+examples/
+tests/
