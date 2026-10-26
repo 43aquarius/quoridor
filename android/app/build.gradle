@@ -1,0 +1,39 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.a43aquarius.quoridor'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "io.github.a43aquarius.quoridor"
+        minSdk 24
+        targetSdk 34
+        versionCode 3
+        versionName "3.0"
+    }
+
+    // 演示签名入库，保证 Release APK 签名稳定、可覆盖升级安装。
+    // 仅供侧载分发；正式上架应用商店请更换为自己的签名。
+    signingConfigs {
+        release {
+            storeFile rootProject.file("keystore/quoridor-release.jks")
+            storePassword "quoridor2026"
+            keyAlias "quoridor"
+            keyPassword "quoridor2026"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

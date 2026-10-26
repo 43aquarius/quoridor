@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">步步为营</string>
+    <string name="exit_hint">再按一次返回键退出对局</string>
+    <string name="poster_saved">棋谱海报已保存至「下载」</string>
+    <string name="poster_failed">海报保存失败，可截图保存</string>
+</resources>

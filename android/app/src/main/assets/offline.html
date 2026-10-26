@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>步步为营 · 离线</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: #F5F2EA; color: #1A1A1A;
+      font-family: "Noto Serif SC", "Songti SC", "STSong", serif;
+      padding: 24px; text-align: center;
+    }
+    .card { max-width: 420px; }
+    h1 { font-size: 46px; letter-spacing: .18em; font-weight: 900; }
+    .seal {
+      display: inline-block; margin: 18px 0 22px; padding: 10px 16px;
+      border: 3px solid #FF4D2E; color: #FF4D2E; border-radius: 6px;
+      font-size: 21px; font-weight: 700; transform: rotate(-4deg); letter-spacing: .1em;
+    }
+    p { font-size: 15px; line-height: 1.9; opacity: .78; margin-bottom: 26px; }
+    button {
+      appearance: none; border: 2px solid #1A1A1A; background: #1A1A1A; color: #F5F2EA;
+      font-size: 15px; letter-spacing: .12em; padding: 12px 36px; border-radius: 4px;
+      font-family: inherit;
+    }
+    button:active { opacity: .8; }
+    small { display: block; margin-top: 18px; opacity: .5; font-size: 12px; letter-spacing: .08em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>步步为营</h1>
+    <div><span class="seal">纸 路 未 通</span></div>
+    <p>暂时连不上棋社——请检查网络连接。<br>一切就绪后即刻回到牌桌。</p>
+    <button onclick="retry()">重新连接</button>
+    <small id="tick">6 秒后自动重试</small>
+  </div>
+  <script>
+    var LEFT = 6;
+    var URL = "https://d1n1c9rzwhe0-d.space.zhipuaidemo.cn/";
+    function retry() { location.replace(URL); }
+    setInterval(function () {
+      LEFT -= 1;
+      if (LEFT <= 0) { retry(); return; }
+      document.getElementById("tick").textContent = LEFT + " 秒后自动重试";
+    }, 1000);
+  </script>
+</body>
+</html>

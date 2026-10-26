@@ -1,0 +1,5 @@
+// 步步为营 · Android WebView 壳工程
+// 纯 Android Framework 实现（无 AndroidX 依赖），JDK 17 / Gradle 8.7+ / AGP 8.5 构建
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 站点 riso 纸白 / 墨黑 -->
+    <color name="paper">#F5F2EA</color>
+    <color name="ink">#1A1A1A</color>
+</resources>
