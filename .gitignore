@@ -7,3 +7,4 @@ dev.log
 .zscripts/*.log
 .zscripts/dev.pid
 next-env.d.ts
+tool-results/

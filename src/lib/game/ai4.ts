@@ -1,8 +1,8 @@
 /* 步步为营 —— 四人围坐 AI（编辑部四档）
  * 四人局不再是双人零和（任一席率先抵线即终局），Negamax 结构不再适用，
  * 改用「竞速 + 拦截」策略族，全部基于 BFS 归途与挡板探针：
- *   1 学徒：最短路捡字，偶尔（16%）随手放板拦人
- *   2 排字师：贪心 —— 落后时评估候选墙，延长领先者的最短归途
+ *   1 学徒：最短路捡字，出手必是「有用的板」——拦领先者临门一道，不伤己路
+ *   2 排字师：贪心 —— 落后时评估候选墙，延长领先者的最短归途（带应手校验）
  *   3 总编：候选墙全量评估 + 领先者一步应手校验（拦得住才算数）
  *   4 社长：兼顾第二威胁、终局竞速精判、贴身紧急拦截
  * 探针：挡板位图设位 → 四席 BFS → 还原（无副作用，可高频调用）。
@@ -271,22 +271,42 @@ export function computeAiMove4(
   const margin = level >= 4 ? 2 : level === 3 ? 1 : 0;
   const racing = myDist < leader.d - margin || (myDist <= leader.d && !oppCanBlock);
 
-  /* 3. 学徒：最短路 + 偶尔随手放板 */
+  /* 3. 学徒：最短路 + 「有用的板」（v2：拦得有用才出手，不再随手乱放） */
   if (level === 1) {
-    if (myWalls > 0 && !racing && Math.random() < 0.16) {
-      const edges = pathEdges(state, leader.p, grids);
-      const cands = candidatesFromEdges(edges, N).filter(
-        (c) =>
-          !wallConflicts(state.walls, c.x, c.y, c.o) &&
-          /* 断路校验：不得封死任何活跃玩家的路径（否则非法着法） */
-          probeWall(grids, c, state, actives, before, N) !== null,
-      );
-      if (cands.length > 0) {
-        const c = cands[Math.floor(Math.random() * cands.length)];
-        return {
-          payload: { type: "wall", wall: { x: c.x, y: c.y, o: c.o, by: me } },
-          label: WALL_LABEL[level],
-        };
+    if (myWalls > 0 && !racing) {
+      /* 紧急 = 领先者临门（≤3 步）或已领先于我；平时 25% 概率也主动拦一道 */
+      const urgent = leader.d <= 3 || leader.d <= myDist;
+      if (urgent || Math.random() < 0.25) {
+        const edges = pathEdges(state, leader.p, grids);
+        const cands = candidatesFromEdges(edges, N).filter(
+          (c) =>
+            !wallConflicts(state.walls, c.x, c.y, c.o) &&
+            /* 断路校验：不得封死任何活跃玩家的路径（否则非法着法） */
+            probeWall(grids, c, state, actives, before, N) !== null,
+        );
+        /* 挑拉长领先者最多、且不伤（紧急时客忍小伤）己路的板；同好随手挑一块 */
+        const harmCap = leader.d <= 2 ? 2 : leader.d <= 3 ? 1 : 0;
+        const bests: WallCand[] = [];
+        let bestGain = 1;
+        for (const c of cands) {
+          const probe = probeWall(grids, c, state, actives, before, N);
+          if (!probe) continue;
+          const gainLeader = probe.gains.get(leader.p) ?? 0;
+          const harmMe = probe.gains.get(me) ?? 0;
+          if (gainLeader < bestGain || harmMe > harmCap) continue;
+          if (gainLeader > bestGain) {
+            bestGain = gainLeader;
+            bests.length = 0;
+          }
+          bests.push(c);
+        }
+        if (bests.length > 0) {
+          const c = bests[Math.floor(Math.random() * bests.length)];
+          return {
+            payload: { type: "wall", wall: { x: c.x, y: c.y, o: c.o, by: me } },
+            label: WALL_LABEL[level],
+          };
+        }
       }
     }
     return bestAdvance(state, me, level) ?? anyWall(state, me, level);
@@ -294,7 +314,7 @@ export function computeAiMove4(
 
   /* 4. 拦截评估（排字师 / 总编 / 社长） */
   if (myWalls > 0 && !racing) {
-    const cap = level >= 4 ? 36 : level === 3 ? 26 : 14;
+    const cap = level >= 4 ? 44 : level === 3 ? 32 : 20;
     const cands: WallCand[] = [];
     const seen = new Set<string>();
     const takeFrom = (p: Player, limit: number) => {
@@ -328,8 +348,8 @@ export function computeAiMove4(
       }
       const harmMe = probe.gains.get(me) ?? 0;
       let score = 2 * gainLeader + gainOthers - 3 * Math.max(0, harmMe);
-      if (level >= 3) {
-        // 应手校验：领先者走一步后与我（也走一步）的归途差
+      if (level >= 2) {
+        // 应手校验：领先者走一步后与我（也走一步）的归途差（v2：排字师也看）
         const afterLeader = (before.get(leader.p) ?? 0) + gainLeader - 1;
         const afterMe = myDist + harmMe - 1;
         const parity = afterLeader - afterMe;

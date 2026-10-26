@@ -1,6 +1,6 @@
 /* 步步为营 —— AI 对手四档（编辑职位命名）· 强化版
- * 1 学徒：最短路径 + 偶尔随机放板（保留笨拙的可爱）
- * 2 排字师：浅层搜索（深度 2，按路径差增益排序候选）——聪明的贪心
+ * 1 学徒：最短路捡字 + 「有用的板」——拦你临门一脚的道、不伤己路才出手（保留随手的可爱）
+ * 2 排字师：浅层搜索（深度 3，按路径差增益排序候选）——看得破一步陷阱的聪明贪心
  * 3 总编：α-β + PVS 主变例搜索 + Zobrist 置换表 + 杀手着法/历史启发
  * 4 社长：搜索预算全开（更深度数、更大候选窗、更久预算），终局纯竞速精确判胜
  *
@@ -97,29 +97,29 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.2 : 1.55;
   if (level === 2) {
     return {
-      budgetMs: Math.round(280 * sizeScale),
-      maxDepth: ENV_DEPTH ?? 2,
-      wallLimit: ENV_WALLS ?? 10,
-      rootWallLimit: ENV_ROOT ?? 12,
+      budgetMs: Math.round(520 * sizeScale),
+      maxDepth: ENV_DEPTH ?? 3,
+      wallLimit: ENV_WALLS ?? 12,
+      rootWallLimit: ENV_ROOT ?? 16,
       qs: false,
     };
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(1600 * sizeScale),
-      maxDepth: ENV_DEPTH ?? (size <= 5 ? 10 : size === 7 ? 9 : size === 9 ? 10 : size === 11 ? 7 : 6),
-      wallLimit: ENV_WALLS ?? 16,
-      rootWallLimit: ENV_ROOT ?? 24,
+      budgetMs: Math.round(2000 * sizeScale),
+      maxDepth: ENV_DEPTH ?? (size <= 5 ? 11 : size === 7 ? 10 : size === 9 ? 11 : size === 11 ? 8 : 7),
+      wallLimit: ENV_WALLS ?? 18,
+      rootWallLimit: ENV_ROOT ?? 28,
       qs: false, /* 消融：短预算下 QS 深度损失 > 战术收益，关 */
     };
   }
-  /* level 4 社长：最强档全预算（用户要求棋力优先，应手最长约 4.8s，
-   * 外推早停后典型 2.5-3s；尺寸缩放限制大开本的上限） */
+  /* level 4 社长：最强档全预算（用户要求棋力优先，应手最长约 5.5s，
+   * 外推早停后典型 2.5-3.5s；尺寸缩放限制大开本的上限） */
   return {
-    budgetMs: Math.round(4800 * sizeScale),
-    maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 13 : size === 9 ? 13 : size === 11 ? 9 : 7),
-    wallLimit: ENV_WALLS ?? 18,
-    rootWallLimit: ENV_ROOT ?? 32,
+    budgetMs: Math.round(5400 * sizeScale),
+    maxDepth: ENV_DEPTH ?? (size <= 5 ? 15 : size === 7 ? 14 : size === 9 ? 14 : size === 11 ? 10 : 8),
+    wallLimit: ENV_WALLS ?? 20,
+    rootWallLimit: ENV_ROOT ?? 36,
     qs: true, /* 预算充裕：QS 战术解析净增益 +37%（对决 75% vs 38%） */
   };
 }
@@ -1937,6 +1937,7 @@ function searchMove(
 function inBoundsAnchor(x: number, y: number, size: number): boolean {
   return x >= 0 && x <= size - 2 && y >= 0 && y <= size - 2;
 }
+void inBoundsAnchor; /* 保留备用：学徒 v2 改用扫描边界内收敛，未再直接调用 */
 
 function cloneState(state: GameState): GameState {
   return {
@@ -1955,24 +1956,43 @@ function apprenticeMove(state: GameState): AiDecision {
   const opPos = op === "A" ? state.posA : state.posB;
   const core = toCore(state);
   const myD = coreDist(core, me);
+  const opD = coreDist(core, op);
   const wallsLeft = me === "A" ? state.wallsA : state.wallsB;
 
-  /* 偶尔放板（16%）：在对手附近随机挑一块合法且不伤己路的挡板 */
-  if (wallsLeft > 0 && Math.random() < 0.16) {
-    for (let attempt = 0; attempt < 14; attempt++) {
-      const x = opPos.x + Math.floor(Math.random() * 5) - 2;
-      const y = opPos.y + Math.floor(Math.random() * 5) - 2;
-      if (!inBoundsAnchor(x, y, N)) continue;
-      const o: Orientation = Math.random() < 0.5 ? "h" : "v";
-      if (wallConflicts(state.walls, x, y, o)) continue;
-      const probe = coreProbeWall(core, x, y, o);
-      if (probe.pathCut) continue;
-      const newMyD = me === "A" ? probe.dA : probe.dB;
-      if (newMyD > myD) continue; /* 学徒虽笨，不至于自断 */
-      return {
-        payload: { type: "wall", wall: { x, y, o, by: me } },
-        label: "学徒随手排了一根铅条",
-      };
+  /* 学徒的板（v2：不再是随手乱放）——只在「有用」时出手：
+   * 必须拉长对手归途 ≥1，且不伤己路（紧急拦门时容忍小伤）。
+   * 紧急 = 对手临门（≤3 步）或领先于我；平时仍有 22% 概率主动拦一道，
+   * 多块同样好时随手挑一块——保留「随手排铅条」的可爱。 */
+  if (wallsLeft > 0) {
+    const urgent = opD <= 3 || opD < myD;
+    if (urgent || Math.random() < 0.22) {
+      const harmCap = opD <= 2 ? 2 : opD <= 3 ? 1 : 0;
+      const bests: Array<{ x: number; y: number; o: Orientation; gain: number }> = [];
+      let bestGain = 1;
+      for (let x = Math.max(0, opPos.x - 3); x <= Math.min(N - 2, opPos.x + 3); x++) {
+        for (let y = Math.max(0, opPos.y - 3); y <= Math.min(N - 2, opPos.y + 3); y++) {
+          for (const o of ["h", "v"] as Orientation[]) {
+            if (wallConflicts(state.walls, x, y, o)) continue;
+            const probe = coreProbeWall(core, x, y, o);
+            if (probe.pathCut) continue;
+            const opGain = (op === "A" ? probe.dA : probe.dB) - opD;
+            const myHarm = (me === "A" ? probe.dA : probe.dB) - myD;
+            if (opGain < bestGain || myHarm > harmCap) continue;
+            if (opGain > bestGain) {
+              bestGain = opGain;
+              bests.length = 0;
+            }
+            bests.push({ x, y, o, gain: opGain });
+          }
+        }
+      }
+      if (bests.length > 0) {
+        const c = bests[Math.floor(Math.random() * bests.length)];
+        return {
+          payload: { type: "wall", wall: { x: c.x, y: c.y, o: c.o, by: me } },
+          label: "学徒随手排了一根铅条",
+        };
+      }
     }
   }
 

@@ -119,13 +119,13 @@ export const AI_PROFILES: Record<
     name: "学徒",
     title: "APPRENTICE",
     thinking: "学徒正在捡字……",
-    brief: "走最短路径，偶尔随手放板。懂得直奔终点，尚不懂得设局。",
+    brief: "循最短路直奔终点；看你临门也会拦一道，只是尚不懂得长线设局。",
   },
   2: {
     name: "排字师",
     title: "TYPESETTER",
     thinking: "排字师正在排版……",
-    brief: "实时比较双方最短路径差，落后时用挡板延长你的归途。",
+    brief: "浅层搜索的聪明贪心：看破近身陷阱，落后时果断放板延长你的归途。",
   },
   3: {
     name: "总编",

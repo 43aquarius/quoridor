@@ -15,15 +15,16 @@ const pool: Worker[] = [];
 let poolBroken = false;
 
 function workerTimeoutMs(level: AiLevel): number {
-  if (level >= 4) return 8000;
-  if (level === 3) return 3500;
+  if (level >= 4) return 9500; /* 社长 5400ms × 1.55 尺寸缩放上限 8370ms，留余量 */
+  if (level === 3) return 4200; /* 总编 2000ms × 1.55 = 3100ms */
   return 2000;
 }
 
 /* 同步兜底的紧预算：Worker 不可用时避免长时间阻塞主线程 */
 function syncBudgetMs(level: AiLevel): number {
-  if (level >= 4) return 1200;
-  if (level === 3) return 900;
+  if (level >= 4) return 1500;
+  if (level === 3) return 1100;
+  if (level === 2) return 420;
   return 280;
 }
 
