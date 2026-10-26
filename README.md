@@ -1,15 +1,21 @@
 # 步步为营 · QUORIDOR
 
+[![Android APK](https://github.com/43aquarius/quoridor/actions/workflows/android-apk.yml/badge.svg)](https://github.com/43aquarius/quoridor/actions/workflows/android-apk.yml)
+[![Release](https://img.shields.io/github/v/release/43aquarius/quoridor)](https://github.com/43aquarius/quoridor/releases/latest)
+
 > 一册会下棋的限量印刷棋谱专著 —— risograph 双色套印美学 × 完整 Quoridor 策略对弈。
 
 网页版策略对弈游戏，基于经典桌面游戏 **Quoridor（步步为营）** 规则。整个应用被排版成一本「编辑部出品的限量棋谱专著」：封面、目录、编者按、档案馆一应俱全；纸白底、墨黑字、荧光红 / 钴蓝双色套印，0.5pt 细线棋盘，铅字棋子与铅条挡板，处处是印刷细节。棋盘尺寸、挡板数量、棋钟规格皆可自定义，支持单人对 AI、双人同屏、**四人围坐（本地 + 在线）**、在线对战四种模式。
 
-开源仓库：<https://github.com/43aquarius/quoridor>
+- **在线开玩**：<https://d1n1c9rzwhe0-d.space.zhipuaidemo.cn/>
+- **Android APK**：[Releases 下载](https://github.com/43aquarius/quoridor/releases/latest)（CI 自动构建，推送代码即出包，打 tag 即发版）
+- **开源仓库**：<https://github.com/43aquarius/quoridor>
 
 ---
 
 ## 目录
 
+- [它长什么样](#它长什么样)
 - [玩法速览](#玩法速览)
 - [功能特性](#功能特性)
 - [快速开始](#快速开始)
@@ -18,16 +24,37 @@
 - [架构与目录](#架构与目录)
 - [在线对战协议](#在线对战协议)
 - [AI 棋力](#ai-棋力)
+- [Android APK](#android-apk)
 - [测试](#测试)
 - [技术栈](#技术栈)
+- [许可](#许可)
 
 ---
 
-## 部署疑难：低内存环境构建失败
+## 它长什么样
 
-若 `bun run build`（Turbopack）在低内存 / 低线程沙箱中报 `The global thread pool has not been initialized: Resource temporarily unavailable`，原因是 Rayon 线程池无法创建工作线程。本项目已在 `package.json` 的 `build` 脚本中固化 `RAYON_NUM_THREADS=1`（单线程构建）予以规避；构建前若开着多只无头浏览器，先关闭以释放内存。
+<p align="center"><img src="docs/screenshots/hero.png" alt="封面 · 一册会下棋的棋谱专著"></p>
 
----
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/duel-ai.png" alt="单人对弈"></td>
+    <td width="50%"><img src="docs/screenshots/four-player.png" alt="四人围坐"></td>
+  </tr>
+  <tr>
+    <th align="center">单人对弈 · 编辑部 AI</th>
+    <th align="center">四人围坐 · 四色套印</th>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/online-room.png" alt="在线对战"></td>
+    <td width="50%"><img src="docs/screenshots/poster.png" alt="棋谱海报"></td>
+  </tr>
+  <tr>
+    <th align="center">在线对战 · 大厅与开房</th>
+    <th align="center">棋谱海报 · 战绩印张</th>
+  </tr>
+</table>
+
+<p align="center"><img src="docs/screenshots/mobile.png" width="280" alt="移动端"></p>
 
 ## 玩法速览
 
@@ -69,6 +96,7 @@
 ### 在线对战
 
 - **对局大厅**：公开等待房实时陈列（含席位占用 `1/4`），可一眼挑房入座；私密房凭码入座。
+- **多实例网关适配**：连接走 WebSocket 单传输钉住实例；遇「房间不存在」自动实例狩猎（活动连接 → 大厅探针池 → 并行批量探针，命中晋升为活动连接，UI 无感知）；公开房跨实例广告轮播，多实例网关随机分流下房间依然可寻、可回座。
 - **双人与四人围桌**：开房时选定；四人房设甲（房主）/ 乙 / 丙 / 丁四席，等不齐的空座可由房主点选交给编辑部 AI 代打（学徒…社长），凑齐或代打后由房主点「开局」。
 - **AI 代打执行**：服务器把 AI 席位的回合派发给在场的真人端（优先房主）计算执行，`ai-turn` 事件携带席位凭证，代打着法与其余着法一样走 `opponent-move` 广播 —— 断线的 AI 席不会卡死对局。
 - **断线重连**：掉线后纸面为你保留 5 分钟（四人局：断线席出局而非判负收束）；刷新页面、误关标签页、换网都能凭原座回局（身份双层存储：sessionStorage 主 + localStorage 兜底）。自动无限重连，网络恢复 / 页面回前台即补连。
@@ -80,6 +108,7 @@
 
 - **最新一手高亮**：每一手棋落定后，行棋落点以四角裁切角标标出、起点留空圈、起讫以点状轨迹相连；落板则围一圈虚线校对圈 —— 回座、回放、对手行棋后一眼可辨，直到下一手才转移。
 - **着法记谱**：代数记谱（`e2→e3` / `WALL h4-H`），随棋盘尺寸自动缩放；边栏可逐手回放。
+- **结算印章**：结算画面按**观屏者视角**盖章——你赢盖「胜」、你输盖同款样式的「败」章（在线对战两端各得其所）。
 - **悔棋**：单机模式可撤回（人机对局自动撤两手到轮到你）。
 - **档案与海报**：终局可入「棋谱档案馆」（localStorage 卷宗，含最远归途峰值、最早耗尽挡板等数据小注）；可导出 1440×2040 棋谱海报 PNG。
 - **放板交互**：hover 即预览（合法显己色、非法显红并注明原因），R 键 / 右键翻转横竖；触屏两步放板（先选方向再确认）。
@@ -97,6 +126,9 @@
 # 安装依赖
 bun install
 
+# 初始化数据库（SQLite，本地文件）
+bun run db:generate && bun run db:push
+
 # 启动开发服务器（端口 3000；在线 relay 随 Next.js instrumentation 自动在 3004 端口拉起）
 bun run dev
 ```
@@ -104,18 +136,15 @@ bun run dev
 - 应用：<http://localhost:3000>
 - 在线 relay（socket.io）：<http://localhost:3004>
 
-### 本地玩在线模式需要网关转发
+### 在线模式连哪里？
 
-浏览器端 socket 按同源路径 `/?XTransformPort=3004` 连接 relay，由网关把该请求转发到 3004 端口。本地直连 `:3000` 时没有这层转发，在线大厅会一直「正在联络大厅」。两种解决办法：
+客户端 socket 地址由 `NEXT_PUBLIC_RELAY_URL` 决定（见 `.env`，默认即线上共享对战服），因此本地开发开箱即可在「04 在线对战」匹配到真实玩家。想改连本地自建 relay：
 
-1. **用网关访问**（推荐）：项目自带 Caddyfile（监听 `:81`，按 `XTransformPort` 查询参数转发到对应端口，其余流量转 `:3000`）：
+```bash
+NEXT_PUBLIC_RELAY_URL=http://localhost:3004 bun run dev
+```
 
-   ```bash
-   caddy run --config Caddyfile
-   # 然后访问 http://localhost:81/
-   ```
-
-2. **改直连**：把 `src/lib/online/client.ts` 中的 `io('/?XTransformPort=3004', …)` 换成 `io('http://localhost:3004', …)`（仅供本地调试，勿提交）。
+直连 `:3004` 无需网关；若走 `:81` 网关（项目自带 Caddyfile，按 `XTransformPort` 查询参数转发），设 `NEXT_PUBLIC_RELAY_URL=http://localhost:81` 即可。
 
 ## 部署
 
@@ -162,6 +191,7 @@ bun run dev        # 监听 :3004；若嵌入式 relay 已占用则自动让位
 - relay 监听端口写死为 **3004**（`RELAY_PORT`）；修改端口需同步改 `client.ts` 的 `XTransformPort` 值与网关规则。
 - 修改 `relay-server.ts` 后，**必须重启 dev server** 才能让嵌入式 relay 生效（instrumentation 只在服务启动时执行）；独立部署的 mini-service 用了 `bun --hot` 会自动热更。
 - 断线判负保留窗为 5 分钟；本地身份兜底有效期 10 分钟。均可在 `relay-server.ts` 顶部常量调整。
+- **低内存环境构建失败**：若 `bun run build`（Turbopack）在低内存 / 低线程沙箱报 `The global thread pool has not been initialized: Resource temporarily unavailable`，原因是 Rayon 线程池无法创建工作线程。本项目已在 `package.json` 的 `build` 脚本中固化 `RAYON_NUM_THREADS=1`（单线程构建）予以规避；构建前若开着多只无头浏览器，先关闭以释放内存。
 
 ## 自定义配置
 
@@ -213,15 +243,15 @@ src/
 ├── components/quoridor/      # 视图组件
 │   ├── HeroView.tsx          # 封面：四字 kinetic 落位 + 「营」压印墨晕
 │   ├── ContentsView.tsx      # 目录 + 续读 + 皮肤胶片条
-│   ├── SetupView.tsx         # 01 单人（AI 三档位 + FormatPanel + ClockPanel）
+│   ├── SetupView.tsx         # 01 单人（AI 四档位 + FormatPanel + ClockPanel）
 │   ├── LocalSetupView.tsx    # 02 双人先择开本
 │   ├── QuadSetupView.tsx     # 03 四人围坐：席位配置（真人 / AI 代打）+ 围坐开本 + 棋钟
 │   ├── RoomView.tsx          # 04 在线：大厅 / 开房（双人 / 四人围桌）/ 凭码入座 / 席位 AI / 断线回座
 │   ├── GameView.tsx          # 对局页：棋盘 + 杂志边栏 + AI 调度 + 在线同步钩子
 │   ├── Board.tsx             # SVG 棋盘（0.5pt 格线、活字棋子、铅条挡板、最新一手高亮、触屏两步放板）
 │   ├── Sidebar.tsx           # 边栏：回合 / 挡板铅条图 / 双计时 / 记谱回放 / 刷新同步
-│   ├── VictoryOverlay.tsx    # 结算：整页反相 + 「胜」印章 + 战绩 + 入档 / 海报
-│   ├── PosterModal.tsx       # Canvas 棋谱海报（1440×2040 PNG）
+│   ├── VictoryOverlay.tsx    # 结算：整页反相 + 胜/败印章（按观屏者视角）+ 战绩 + 入档 / 海报
+│   ├── PosterModal.tsx       # Canvas 棋谱海报（1440×2040 PNG，浏览器直存 + Android 原生桥）
 │   ├── ArchiveView.tsx       # 05 档案馆 spread
 │   └── …                     # FormatPanel / ClockPanel / RulesView / GithubMark / CursorTrail 等
 ├── hooks/
@@ -234,17 +264,18 @@ src/
 │   │   ├── ai.ts             # 二人局四档 AI（见下节）
 │   │   ├── ai4.ts            # 四人围坐 AI（席位感知：多对手路径差 + 出局席位铅字作障碍）
 │   │   ├── ai-worker.ts      # Web Worker 壳（不阻塞 UI）
-│   │   ├── ai-client.ts      # Worker 客户端（2.5s 超时同步兜底）
-│   │   ├── types.ts          # 类型 / 开本与棋钟预设 / 规格清洗
+│   │   ├── ai-client.ts      # Worker 客户端（worker 池 + 根分裂并行 + 超时同步兜底）
+│   │   ├── types.ts          # 类型 / 开本与棋钟预设 / 规格清洗 / AI 人设文案
 │   │   ├── archive.ts        # 档案卷宗（localStorage）
 │   │   ├── poster.ts         # 海报绘制
 │   │   └── sounds.ts         # Web Audio 合成音效
 │   └── online/
-│       ├── relay-server.ts   # relay 服务端（房间 / 转发 / 断线保留 / 棋钟终审 / 大厅）
-│       └── client.ts         # socket 单例 + 双层身份存储 + API 封装
+│       ├── relay-server.ts   # relay 服务端（房间 / 转发 / 断线保留 / 棋钟终审 / 大厅 / 跨实例广告）
+│       └── client.ts         # socket 门面 + 实例狩猎 + 双层身份存储 + API 封装
 ├── store/game-store.ts       # zustand 全局状态机（可序列化对局状态统一驱动悔棋/回放/同步/存档）
 └── instrumentation.ts        # 服务启动时拉起 relay
-scripts/                      # 引擎单测 / relay e2e / AI 阶梯基准等（见「测试」）
+android/                      # Android WebView 壳工程（见「Android APK」）
+scripts/                      # 引擎单测 / relay e2e / AI 阶梯与消融基准 / 图标与截图管线
 mini-services/quoridor-relay/ # relay 独立部署入口（薄壳复用主项目实现）
 ```
 
@@ -264,6 +295,7 @@ socket.io，事件往返均为 ack 回调风格（服务端粗校验，规则校
 | `game-move` | C→S | 携带着法 + 本手用时 + 累计用时；服务器记账并转发 `opponent-move` |
 | `game-resign` / `heartbeat` / `leave-room` | C→S | 认输（四人局为出局着）/ 30s 心跳保活 / 主动离席 |
 | `lobby-watch` / `lobby-unwatch` | C→S | 订阅 / 退订大厅空房列表（`lobby-update` 实时推送） |
+| `lobby-advertise` / `lobby-unadvertise` | S↔S | 公开房跨实例广告（TTL 60 秒，真实房优先），多实例网关下大厅依然同框 |
 | `game-start` / `opponent-move` / `peer-status` | S→C | 开局（含规格与席位表）/ 对手着法 / 各席连接状态 |
 | `seat-update` | S→C | 四人房席位变动（真人入座 / 设 AI / 离座）实时广播 |
 | `ai-turn` | S→C | 服务器把 AI 席位回合派发给在场真人端执行（携带席位凭证） |
@@ -273,31 +305,50 @@ socket.io，事件往返均为 ack 回调风格（服务端粗校验，规则校
 
 ## AI 棋力
 
-四档以编辑职位命名，难度严格递增（阶梯基准实测：弱代理胜学徒 63%、胜排字师 13%、胜总编 / 社长 0%；中代理可胜学徒与排字师、对总编 / 社长 0%；新旧引擎随机开局对弈：v4 对 v3 三档全面净胜——排字师 63%、总编 75%（24 局合并）、社长 75%，社长档对 v2 两代累计胜率超 85%）：
+四档以编辑职位命名，棋力严格单调递增（等预算 800ms 梯度对决：社长胜总编 5:1、总编胜排字师 5:1、排字师胜学徒 5:1；四人桌档间梯度经「交换后竞速裕度」与「硬性自伤上限」双重门控后同样强单调）：
 
-| 档位 | 职位 | 引擎 | 特点 |
+| 档位 | 职位 | 引擎要点 | 应手节奏 |
 | --- | --- | --- | --- |
-| L1 | 学徒 | 最短路贪心 + 16% 随机放板 | 懂得直奔终点，尚不懂得设局 |
-| L2 | 排字师 | 浅层搜索（深度 2，路径差增益排序） | 聪明的贪心，会沿你的最短路选板 |
-| L3 | 总编 | α-β + **PVS 主变例搜索** + 迭代加深 + **跨回合持久 Zobrist 置换表** + 杀手着法 / 历史启发 + **LMR 晚序降深** + **空着剪枝** + **根分裂多核并行** | 评估：路径差、挡板存量、机动空间、行棋权、**路径分岔自由度**、**板压交叉项** |
-| L4 | 社长 | 总编引擎全预算（更深 / 更宽 / 更久）+ **墙威胁静止搜索**，终局**精确竞速求解** | 预算充裕才开启静止搜索：战术解析收益大于深度损失 |
+| L1 | 学徒 | 距离场最短路选步 + **有用拦截**（拦在对手必经之道而非人旁，临门 ≤3 步或被甩开时紧急出手）+ **终局封路** + 纯竞速纪律（对手无板且不落后时寸板不花） | 即时（毫秒级） |
+| L2 | 排字师 | Negamax + α-β 迭代加深（9 路 5 层）+ 应手校验 + 根分裂并行（≤2 Worker）——看得破两步陷阱 | 1 秒内 |
+| L3 | 总编 | 9 路深度 13 / 预算 3s；PVS 主变例搜索、LMR 晚序降深、空着剪枝、板压评估、跨回合持久置换表、根分裂多核并行 | 1–3 秒 |
+| L4 | 社长 | 9 路深度 16 / 预算 6s；总编全引擎 + **竞速纪律根门控**（领先时剪除低增益烧节奏板，从不画蛇添足）+ **竞速持久置换表**（板尽后的纯竞速搜索也秒回） | 3–6 秒 |
 
-搜索核心的强化（详见 `src/lib/game/ai.ts` 头部注释）：
+搜索核心的工程强化（详见 `src/lib/game/ai.ts` 头部注释）：
 
 1. **全盘目标距离缓存**——以墙配置 Zobrist 为键缓存双方距离场，评估 / 探针 / 路径标记全部 O(1) 查表化，同预算下搜索深度提升 2–3 层；
-2. **墙合法性接触计数快检**（grantslatton《Solving Quoridor》技术）——候选板与既有墙 / 边界的连接点 < 2 时拓扑上不可能封路，直接跳过断路 BFS；
-3. **即胜检测前移**——行棋方一步可达终点（含直跳 / 斜跳合法性）在任意深度精确判出，不给对手留翻盘窗；
-4. **终局精确化**——①「上一手已抵终点」核验先于即胜检测（双方均差一步时不再误判）；②无板终局改用受限精确竞速搜索（只搜推进着法），修复跳子对冲下的奇偶误判——近距离对冲局旧近似会判反胜负；
-5. **战术延展**——重击板（受害者路径净增 ≥ 2 且距终点 ≤ 5）不减深，墙陷阱的应手必被看清（仅预算早段启用，不挤占迭代深度）；
+2. **墙合法性接触计数快检**——候选板与既有墙 / 边界的连接点 < 2 时拓扑上不可能封路，直接跳过断路 BFS；
+3. **即胜检测前移**——行棋方一步可达终点（含直跳 / 斜跳合法性）在任意深度精确判出；
+4. **终局精确化**——无板终局改用受限精确竞速搜索，修复跳子对冲下的奇偶误判；竞速搜索另设持久置换表（键含行棋方与尺寸盐、值带到达层偏移），根治共享走廊局面的指数爆炸与「兜圈子」振荡；
+5. **战术延展**——重击板（受害者路径净增 ≥ 2 且距终点 ≤ 5）不减深，墙陷阱的应手必被看清（仅预算早段启用）；
 6. **LMR 晚序降深 + 反向后手剪枝 + 根期望窗口 + 跨回合持久置换表**——同预算多搜约 1–2 层；
-7. **空着剪枝（v4）**——非 PV 窗、行棋方不在竞速精度区（距终点 > 3、余板 ≥ 2）时先搜一层「弃权」缩深树验证剪枝，同等节点数深度 +1–2 层；竞速末段 zugzwang 风险双重守卫规避；
-8. **板压评估项（v4）**——余板 × 对手路径长度的交叉项：对手弹药充足且我路径长时，表面领先打折（随时可被封）；这也是空着剪枝边界质量的关键（消融：纯空着剪枝仅 38%，叠加板压项 88%）；
-9. **墙威胁静止搜索（v4，仅社长档）**——叶子节点不再裸静态评估：沿受害者距离场下降边枚举可封锁墙锚，经接触快检 + probe 增益筛选后只展开重击板（受害者净增 ≥ 2 且自伤 < 增益），地平线前的墙陷阱必被看清；消融显示它需要充裕预算才值回票价（L4 +37%、L3 短预算 −38%，故按档门控）；
-10. **根分裂多核并行**——总编与社长档在多核桌面（≥ 6 核）把根候选按交织切片派发给最多 4 个 Worker 并行迭代加深、逐层同步汇报，主线程按「全席公共深度」同层比分取优（跨深度分数受地平线乐观偏差污染，不可比；核数不足时自动退回单 Worker）。
+7. **空着剪枝 + 板压评估项**——余板 × 对手路径长度的交叉项给表面领先打折；消融实测两者叠加才有效（单独开 38%，叠加 88%）；
+8. **墙威胁静止搜索**——叶子节点枚举重击板锚点展开验证，地平线前的墙陷阱必被看清；消融显示它只在社长档的全预算下值回票价，故按档门控（默认关，`QUORIDOR_AI_QS=1` 可开）；
+9. **根分裂多核并行**——总编与社长档把根候选按交织切片派发 Worker 并行迭代加深、按「全席公共深度」同层比分取优（核数不足自动退回单 Worker）；
+10. **评估与纪律**——路径差、挡板存量、机动空间、路径分岔自由度等多项评估；社长档「竞速纪律」在根节点剪除增益不足的烧节奏板——治好了「聪明反被聪明误」的放板马拉松（139 手 → 58 手干净竞速）。
 
-AI 全档在 **Web Worker** 中运行不阻塞 UI；搜索时间预算 280ms–4.8s 按档位与尺寸缩放（社长档应手典型 2.5–3s）；支持 5–13 路全部开本。开发时可用环境变量 `QUORIDOR_AI_DEPTH / QUORIDOR_AI_WALLS / QUORIDOR_AI_ROOT` 覆写参数、`QUORIDOR_AI_OFF_RF / OFF_LMR / OFF_EXT / OFF_ASP / OFF_PTT / OFF_RW / OFF_NMP / OFF_QS / OFF_WP` 做组件消融实验（开关在模块加载时读取，须 CLI 传入）。
+AI 全档在 **Web Worker** 中运行不阻塞 UI；搜索预算毫秒级至 6 秒按档位与尺寸缩放；支持 5–13 路全部开本。开发时可用环境变量 `QUORIDOR_AI_DEPTH / QUORIDOR_AI_WALLS / QUORIDOR_AI_ROOT` 覆写参数、`QUORIDOR_AI_OFF_RF / OFF_LMR / OFF_EXT / OFF_ASP / OFF_PTT / OFF_RW / OFF_NMP / OFF_QS / OFF_WP` 做组件消融实验（开关在模块加载时读取，须 CLI 传入）。
 
-**四人围坐 AI**（`ai4.ts`）沿用同一套四档人设，评估改为席位感知：计算自己与**其余三席**的路径差、把出局席位的铅字视作障碍物、放板须同时保住四席通路（学徒随手放板也经全席通路探针校验，绝不产生非法着法）；本地围坐的 AI 席与在线代打 AI 均由它驱动。
+**四人围坐 AI**（`ai4.ts`）沿用同一套四档人设，评估改为席位感知：计算自己与**其余三席**的路径差、把出局席位的铅字视作障碍物、放板须同时保住四席通路；高档位引入**硬性自伤上限**（四人局自伤等于给另外两家免费搭车）与**交换后竞速裕度门控**（模拟放板后转一圈的最坏竞速差：领先时严格、落后时放行——落后时板是唯一武器）。本地围坐的 AI 席与在线代打 AI 均由它驱动。
+
+## Android APK
+
+`android/` 是一个**极简 WebView 壳工程**（纯 Android Framework，零第三方依赖）：加载线上对弈站，配纸色主题与品牌图标，站内浏览、外域链接唤起系统浏览器；棋谱海报经 `window.AndroidBridge` 原生桥保存到系统「下载」；断网自动回落纸面风离线页并自动重连。
+
+**CI/CD**（`.github/workflows/android-apk.yml`）：
+
+- 推送 `main` / 手动触发 → 构建 Release APK，上传为构建产物（Artifact）；
+- 推送 tag（如 `3.0`）→ 自动创建 GitHub Release 并附上 APK；
+- 每次构建产物在 [Actions](https://github.com/43aquarius/quoridor/actions/workflows/android-apk.yml) 页可下载，正式版本走 [Releases](https://github.com/43aquarius/quoridor/releases/latest)。
+
+本地构建（需 JDK 17+ / Gradle 8.7+ / Android SDK 34）：
+
+```bash
+gradle -p android assembleRelease
+# 产物: android/app/build/outputs/apk/release/app-release.apk
+```
+
+> 签名说明：仓库内置演示签名（`android/keystore/`），保证 Release APK 签名稳定、可直接覆盖升级安装，仅供侧载分发；正式上架应用商店请更换为自己的签名。
 
 ## 测试
 
@@ -310,23 +361,23 @@ bun run scripts/relay-e2e.mjs     # relay 双会话 e2e：15 项（规格清洗�
                                   #   回座恢复、复联清零、认输广播）
 bun run scripts/relay4-e2e.mjs    # 四人房 relay e2e：30 项（四席位入座 / set-seat-ai / 开局校验 / ai-turn 派发 /
                                   #   出局广播与顺位跳过 / 单步超时出局 / 1人+3AI 开局）
+bun run scripts/ai-r3.ts          # AI 终验套件（ab 对决 / matrix 消融矩阵 / trace 行迹追踪 / grad 等预算梯度 /
+                                  #   4p 四人桌梯度 / micro 微测试 六模式）
 bun run scripts/ai-ladder.ts      # AI 阶梯基准：四档对人类代理的胜率单调性
-bun run scripts/ai-duel-legacy.ts # 新旧 AI 引擎对决（开局随机化，DUEL_LEVEL/DUEL_N/DUEL_CAP 可调）
-bun run scripts/ai-duel-v3.ts     # v4 vs v3 对决（支持 QUORIDOR_AI_OFF_QS/NMP/WP 消融）
-bun run scripts/ai-diag-v4.ts     # v4 组件诊断：深度/节点/qnodes/缓存命中率同局面对比
 bun run lint                      # ESLint：0 error / 0 warning
 ```
 
 ## 技术栈
 
 - **框架**：Next.js 16（App Router + Turbopack）· TypeScript 5
-- **样式**：Tailwind CSS 4 · framer-motion 动效 · 自定义 riso 设计系统（无 UI 框架依赖的棋盘全部手绘 SVG）
+- **样式**：Tailwind CSS 4 · framer-motion 动效 · 自定义 riso 设计系统（棋盘全部手绘 SVG）
 - **状态**：zustand（全局状态机）
 - **在线**：socket.io（服务端内嵌 Next.js instrumentation + 可独立部署 mini-service）
-- **AI**：Web Worker + 自研 Negamax 搜索
+- **AI**：Web Worker + 自研 Negamax 搜索（根分裂并行 / 持久置换表 / 精确终局竞速）
 - **音效**：Web Audio API 实时合成（零音频资源）
-- **持久化**：localStorage（存档续读 / 档案馆 / 皮肤 / 音效开关 / 配置）
+- **持久化**：localStorage（存档续读 / 档案馆 / 皮肤 / 音效开关 / 配置）+ Prisma/SQLite（服务端）
+- **移动端**：Android WebView 壳 + GitHub Actions CI/CD
 
 ## 许可
 
-MIT（代码）；视觉设计「限量印刷棋谱专著」为本项目原创。Quoridor 原始桌面游戏规则归属其发明者 Mirko Marchesi 及版权方。
+MIT（代码，见 [LICENSE](LICENSE)）；视觉设计「限量印刷棋谱专著」为本项目原创。Quoridor 原始桌面游戏规则归属其发明者 Mirko Marchesi 及版权方。
