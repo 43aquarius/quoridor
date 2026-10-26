@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 步步为营 · Quoridor 品牌图标：纸面棋盘 + 钴蓝铅条挡板 + 荧光红铅字棋子 + 归途点线 -->
+  <rect x="7" y="7" width="498" height="498" rx="112" fill="#F5F2EA" stroke="#1A1A1A" stroke-width="14"/>
+  <g stroke="#1A1A1A" stroke-width="6" opacity="0.2">
+    <path d="M110 110V402 M183 110V402 M256 110V402 M329 110V402 M402 110V402"/>
+    <path d="M110 110H402 M110 183H402 M110 256H402 M110 329H402 M110 402H402"/>
+  </g>
+  <rect x="110" y="168" width="148" height="30" rx="9" fill="#2440B3"/>
+  <rect x="314" y="256" width="30" height="86" rx="9" fill="#2440B3"/>
+  <g fill="#1A1A1A" opacity="0.55">
+    <circle cx="256" cy="258" r="9"/>
+    <circle cx="303" cy="224" r="9"/>
+    <circle cx="350" cy="183" r="9"/>
+    <circle cx="390" cy="143" r="9"/>
+  </g>
+  <g fill="#FF4D2E">
+    <circle cx="256" cy="316" r="46"/>
+    <path d="M214 348 H298 L316 412 Q318 428 300 428 H212 Q194 428 196 412 Z"/>
+  </g>
+</svg>

@@ -47,6 +47,20 @@ export function PosterModal() {
     if (!entry) return;
     const blob = await generatePosterPng(entry, skinById(skin));
     if (!blob) return;
+    /* Android 壳（WebView）无法下载 blob: 链接——走原生桥保存到系统「下载」 */
+    const bridge = (window as unknown as {
+      AndroidBridge?: { savePoster?: (dataUrl: string, fileName: string) => void };
+    }).AndroidBridge;
+    if (bridge?.savePoster) {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ""));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      bridge.savePoster(dataUrl, posterFileName(entry));
+      return;
+    }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = posterFileName(entry);
