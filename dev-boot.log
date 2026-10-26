@@ -1,0 +1,99 @@
+==========================================
+[2026-10-25 14:08:57] Starting: bun install
+==========================================
+[BUN] Installing dependencies...
+[0.09ms] ".env"
+bun install v1.3.14 (0d9b296a)
+
+Checked 865 installs across 934 packages (no changes) [42.00ms]
+==========================================
+[2026-10-25 14:08:57] Completed: bun install
+[LOG] Step: bun install | Duration: 0s
+==========================================
+
+==========================================
+[2026-10-25 14:08:57] Starting: bun run db:push
+==========================================
+[BUN] Setting up database...
+$ prisma db push --accept-data-loss
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+Datasource "db": SQLite database "custom.db" at "file:/home/z/my-project/db/custom.db"
+
+The database is already in sync with the Prisma schema.
+
+Running generate... (Use --skip-generate to skip the generators)
+[2K[1A[2K[GRunning generate... - Prisma Client
+[2K[1A[2K[G✔ Generated Prisma Client (v6.19.2) to ./node_modules/@prisma/client in 85ms
+
+==========================================
+[2026-10-25 14:08:59] Completed: bun run db:push
+[LOG] Step: bun run db:push | Duration: 2s
+==========================================
+
+==========================================
+[2026-10-25 14:08:59] Starting: Starting Next.js dev server
+==========================================
+[BUN] Starting development server...
+==========================================
+$ next dev -p 3000 2>&1 | tee dev.log
+[2026-10-25 14:08:59] Completed: Starting Next.js dev server
+[LOG] Step: Starting Next.js dev server | Duration: 0s
+==========================================
+
+==========================================
+[2026-10-25 14:08:59] Starting: Waiting for Next.js dev server
+==========================================
+Waiting for Next.js dev server to be ready on localhost:3000...
+Attempt 1/60: Next.js dev server not ready yet, waiting...
+▲ Next.js 16.1.3 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://21.0.6.185:3000
+- Environments: .env
+
+✓ Starting...
+[quoridor-relay] listening on :3004
+✓ Ready in 1032ms
+○ Compiling / ...
+Attempt 2/60: Next.js dev server not ready yet, waiting...
+Attempt 3/60: Next.js dev server not ready yet, waiting...
+ GET / 200 in 2.7s (compile: 2.5s, render: 184ms)
+ GET / 200 in 48ms (compile: 10ms, render: 38ms)
+Next.js dev server is ready!
+==========================================
+[2026-10-25 14:09:12] Completed: Waiting for Next.js dev server
+[LOG] Step: Waiting for Next.js dev server | Duration: 13s
+==========================================
+
+==========================================
+[2026-10-25 14:09:12] Starting: Health check
+==========================================
+[BUN] Performing health check...
+ GET / 200 in 35ms (compile: 6ms, render: 29ms)
+[BUN] Health check passed
+==========================================
+[2026-10-25 14:09:12] Completed: Health check
+[LOG] Step: Health check | Duration: 0s
+==========================================
+
+==========================================
+[2026-10-25 14:09:12] Starting: Starting mini-services
+==========================================
+Found mini-services directory, scanning for sub-services...
+Checking service: quoridor-relay
+Starting quoridor-relay in background...
+[quoridor-relay] Started in background (PID: 2712)
+[quoridor-relay] Log: /home/z/my-project/.zscripts/mini-service-quoridor-relay.log
+Mini-services startup completed. Started 1 service(s).
+==========================================
+[2026-10-25 14:09:12] Completed: Starting mini-services
+[LOG] Step: Starting mini-services | Duration: 0s
+==========================================
+
+Next.js dev server is running in background (PID: 2581).
+Use 'kill 2581' to stop it.
+ GET / 200 in 54ms (compile: 9ms, render: 45ms)
+ GET / 200 in 44ms (compile: 7ms, render: 37ms)
+ GET / 200 in 44ms (compile: 8ms, render: 36ms)
+ GET / 200 in 42ms (compile: 6ms, render: 36ms)
+ GET / 200 in 46ms (compile: 6ms, render: 40ms)
