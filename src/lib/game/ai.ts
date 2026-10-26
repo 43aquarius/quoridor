@@ -36,6 +36,21 @@
  * N. 总编：预算 2000→2600ms、9 路深度 11→12、板窗 18→20/28→32。
  * O. 社长：预算 5400→6000ms、9 路深度 14→15、板窗 20→22/36→40。
  *
+ * 第四轮强化（v6，用户三次要求加强 + 「社长聪明反被聪明误」修复）：
+ * P. 消融矩阵定论（等预算 800ms × 6 局 × 6 配置）：社长开 QS（墙威胁
+ *    静止搜索）会陷入 139 手放板马拉松且对总编仅 3:2，关 QS 后
+ *    58 手干净竞速 4:2——「聪明反被聪明误」实锤。QS 全档默认关；
+ *    WP 板压项/PTT 持久置换表关掉双双 2:4 掉分，保留；NMP 中性
+ *    （纯深度加速器），保留。
+ * Q. 社长竞速纪律（discipline）：对手已无板且我不落后时，根节点剪除
+ *    增益 <2 的烧节奏板——深搜评估噪声偶发偏爱幻影增益板的保险丝。
+ * R. 时间外推早停改良：按「本层实际开销 × 4」预测下层，放得下才开搜，
+ *    预算吃满；旧 55% 硬线在 TT 命中好时白白空转近半预算。
+ * S. 四档再上台阶：排字师 5 层/1000ms/板窗 16/根窗 24，
+ *    总编 3000ms/9 路深度 13/板窗 22/根窗 36，社长 9 路深度 16/板窗 24/根窗 44。
+ * T. 四人桌（ai4）：总编/社长新增「交换后竞速裕度」门控——平先/领先时
+ *    烧节奏的板一律不放，落后时贪心放量（板是唯一武器）；档间质差恢复。
+ *
  * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
  */
 
@@ -70,9 +85,11 @@ interface LevelParams {
   maxDepth: number; // 迭代加深深度上限
   wallLimit: number; // 内层节点挡板候选上限
   rootWallLimit: number; // 根节点挡板候选上限（探针验证后保留数）
-  /** 墙威胁静止搜索：仅预算充裕的社长档启用（消融：L4 +37%，
-   * L3 短预算下深度损失大于战术收益） */
+  /** 墙威胁静止搜索（v6 消融定论：默认全关，见 levelParams 社长档注释） */
   qs: boolean;
+  /** 竞速纪律（v6，社长专属）：对手无板且我不落后时，根节点剪除
+   * 增益 <2 的烧节奏板——「聪明反被聪明误」的保险丝 */
+  discipline: boolean;
 }
 
 const MAX_PLY = 28;
@@ -108,30 +125,35 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.2 : 1.55;
   if (level === 2) {
     return {
-      budgetMs: Math.round(800 * sizeScale), /* v5：520→800，深度 4 需要喘息空间 */
-      maxDepth: ENV_DEPTH ?? 4,
-      wallLimit: ENV_WALLS ?? 14,
-      rootWallLimit: ENV_ROOT ?? 20,
+      budgetMs: Math.round(1000 * sizeScale), /* v6：800→1000，深度 5 需要喘息空间 */
+      maxDepth: ENV_DEPTH ?? 5,
+      wallLimit: ENV_WALLS ?? 16,
+      rootWallLimit: ENV_ROOT ?? 24,
       qs: false,
+      discipline: false,
     };
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(2600 * sizeScale), /* v5：2000→2600 */
-      maxDepth: ENV_DEPTH ?? (size <= 5 ? 12 : size === 7 ? 11 : size === 9 ? 12 : size === 11 ? 8 : 7),
-      wallLimit: ENV_WALLS ?? 20,
-      rootWallLimit: ENV_ROOT ?? 32,
+      budgetMs: Math.round(3000 * sizeScale), /* v6：2600→3000 */
+      maxDepth: ENV_DEPTH ?? (size <= 5 ? 12 : size === 7 ? 11 : size === 9 ? 13 : size === 11 ? 8 : 7),
+      wallLimit: ENV_WALLS ?? 22,
+      rootWallLimit: ENV_ROOT ?? 36,
       qs: false, /* 消融：短预算下 QS 深度损失 > 战术收益，关 */
+      discipline: false,
     };
   }
-  /* level 4 社长：最强档全预算（用户要求棋力优先，应手最长约 6.2s，
-   * 外推早停后典型 2.5-3.5s；尺寸缩放限制大开本的上限） */
+  /* level 4 社长：最强档全预算（v6：外推早停改良后吃满预算，应手最长
+   * 约 6.2s，典型 4-6s；尺寸缩放限制大开本的上限） */
   return {
     budgetMs: Math.round(6000 * sizeScale), /* v5：5400→6000 */
-    maxDepth: ENV_DEPTH ?? (size <= 5 ? 15 : size === 7 ? 14 : size === 9 ? 15 : size === 11 ? 10 : 8),
-    wallLimit: ENV_WALLS ?? 22,
-    rootWallLimit: ENV_ROOT ?? 40,
-    qs: true, /* 预算充裕：QS 战术解析净增益 +37%（对决 75% vs 38%） */
+    maxDepth: ENV_DEPTH ?? (size <= 5 ? 16 : size === 7 ? 15 : size === 9 ? 16 : size === 11 ? 10 : 8),
+    wallLimit: ENV_WALLS ?? 24,
+    rootWallLimit: ENV_ROOT ?? 44,
+    qs: false, /* v6 消融（等预算800ms×6局×6配置）：QS 开→均139手放板马拉松且 3:2，
+                 * 关→均58手干净竞速且 4:2——「聪明反被聪明误」实锤，默认关。
+                 * WP/PTT 关则 2:4 双双掉分，保留；NMP 中性（加速器），保留。 */
+    discipline: true,
   };
 }
 
@@ -760,6 +782,8 @@ interface Cand {
   code: number;
   payload: MovePayload;
   score: number;
+  /** 根节点探针实测的对手归途增量（v6：竞速纪律门控用；内层候选无此字段） */
+  gain?: number;
 }
 
 function pawnCode(to: Vec, size: number): number {
@@ -932,6 +956,7 @@ function genCandidates(
       const newMyD = p === "A" ? probe.dA : probe.dB;
       const newOpD = p === "A" ? probe.dB : probe.dA;
       w.score = w.score + (newOpD - opD) * 6 - (newMyD - myD) * 6;
+      w.gain = newOpD - opD; /* v6：竞速纪律门控用 */
       probed.push(w);
       kept++;
     }
@@ -1067,7 +1092,11 @@ function evaluate(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
   return score;
 }
 
-/* 双方挡板耗尽 → 纯竞速，精确判胜（无需搜索） */
+/* 双方挡板耗尽 → 纯竞速，精确判胜（无需搜索）
+ * v6.2 到达层口径：胜者真实到达层 = ply + 2×距离 −（胜者先手 ? 2 : 1）
+ * （此后每两屋一步，先手省一步）。旧口径 EVAL_WIN − ply − myD 把距离
+ * 当屋数折价，令「立刻分离但距离较远」的口袋着法在都赢的着法间显得
+ * 更快取胜——纯竞速振荡的帮凶。等距时先手胜（先到半步）。 */
 function raceEval(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
   const buf = goalDists(c);
   const N = c.size;
@@ -1075,16 +1104,18 @@ function raceEval(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
   const bi = c.posB.y * N + c.posB.x;
   const dA = buf[ai];
   const dB = buf[MAX_CELLS + bi];
-  if (dA === 0) return me === "A" ? EVAL_WIN - ply : -(EVAL_WIN - ply);
-  if (dB === 0) return me === "B" ? EVAL_WIN - ply : -(EVAL_WIN - ply);
+  if (dA === 0) return me === "A" ? EVAL_WIN - ply + 1 : -(EVAL_WIN - ply + 1);
+  if (dB === 0) return me === "B" ? EVAL_WIN - ply + 1 : -(EVAL_WIN - ply + 1);
   if (dA < 0 || dB < 0) return cutBlame(me, ply, ctx0);
   const myD = me === "A" ? dA : dB;
   const opD = me === "A" ? dB : dA;
-  if (myD !== opD) {
-    return myD < opD ? EVAL_WIN - ply - myD : -(EVAL_WIN - ply - opD);
-  }
   const mover = ply % 2 === 0 ? me : opponent(me);
-  return mover === me ? EVAL_WIN - ply - myD : -(EVAL_WIN - ply - opD);
+  const iWin = myD < opD || (myD === opD && mover === me);
+  const winner: Player = iWin ? me : opponent(me);
+  const dW = iWin ? myD : opD;
+  const arrival = ply + 2 * dW - (mover === winner ? 2 : 1);
+  const val = EVAL_WIN - arrival;
+  return winner === me ? val : -val;
 }
 
 /* ============ 无板终局精确竞速（v3） ============
@@ -1098,11 +1129,38 @@ function raceEval(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
  *   （等距时停滞方立即输掉奇偶先手）。
  * - 两子纵向错开 ≥ 2 后永不再相邻（各自只朝目标推进），
  *   此时奇偶近似精确成立，直接 raceEval 收尾。
- * 节点上限保护：超限回退近似（罕见；分离判据把交互区限制在
- * 交叉前后数手，典型 < 1k 节点）。 */
+ * 节点上限保护：超限回退近似（v6.2 竞速置换表后罕见触发）。
+ *
+ * v6.2 竞速置换表（跨回合持久）：无板局面只由「二子位置 + 行棋方 +
+ * 尺寸盐」决定，可达位置数 O(2·N⁴)，一张小表即可全存。值 =
+ * (胜者, 到达层偏移 off = arrival − ply)，off 与层无关、跨层跨回合复用。
+ * 【病灶实录】旧版无记忆递归在「共享走廊」局面（双方沿同一列/行
+ *   各自绕行，|dy|≥2 分离捷径永不触发）指数爆炸，撞 24000 节点上限后
+ *   回退近似——返回值成了垃圾；而恰好立刻分离的口袋着法拿到干净的
+ *   直判分，根节点比较下来「只有口袋不像垃圾」：社长在必胜竞速里
+ *   选中兜圈子，双方四循环振荡 500 手（trace 实测复现）。 */
 
 const RACE_NODE_CAP = 24000;
 let raceNodes = 0;
+
+interface RaceMemoEntry {
+  hi: number;
+  w: 0 | 1; // 胜者：0=甲 1=乙
+  off: number; // 到达层偏移（arrival − ply）
+}
+const RACE_MEMO = new Map<number, RaceMemoEntry>();
+const RACE_MEMO_CAP = 120000;
+
+function raceMemoStore(c: Core, me: Player, ply: number, val: number) {
+  if (RACE_MEMO.size > RACE_MEMO_CAP) RACE_MEMO.clear();
+  const winnerIsMe = val > 0;
+  const arrival = EVAL_WIN - Math.abs(val);
+  RACE_MEMO.set(c.hashLo >>> 0, {
+    hi: c.hashHi >>> 0,
+    w: (winnerIsMe ? me : opponent(me)) === "A" ? 0 : 1,
+    off: arrival - ply,
+  });
+}
 
 function raceSearch(c: Core, me: Player, ply: number, ctx: SearchCtx): number {
   raceNodes = 0;
@@ -1112,18 +1170,30 @@ function raceSearch(c: Core, me: Player, ply: number, ctx: SearchCtx): number {
 function raceRec(c: Core, me: Player, ply: number, alpha: number, beta: number, ctx: SearchCtx): number {
   if (++raceNodes > RACE_NODE_CAP || ply >= MAX_PLY - 1) return raceEval(c, me, ply, ctx);
   const mover = ply % 2 === 0 ? me : opponent(me);
-  /* 终局核验：上一手已抵终点 */
+  /* 终局核验：上一手已抵终点（到达层 = ply−1） */
   const just = opponent(mover);
   const justPos = just === "A" ? c.posA : c.posB;
   if (justPos.y === goalRow(just, c.size)) {
     return just === me ? EVAL_WIN - ply + 1 : -(EVAL_WIN - ply + 1);
   }
-  /* 本手可达终点（含跳子）：直捷判胜 */
+  /* 本手可达终点（含跳子）：到达层 = ply（v6.2 口径） */
   if (coreDist(c, mover) === 1 && canReachGoalNow(c, mover)) {
-    return mover === me ? EVAL_WIN - ply - 1 : -(EVAL_WIN - ply - 1);
+    return mover === me ? EVAL_WIN - ply : -(EVAL_WIN - ply);
   }
-  /* 纵向分离 ≥ 2：此后永不相遇，奇偶近似即精确 */
-  if (Math.abs(c.posA.y - c.posB.y) >= 2) return raceEval(c, me, ply, ctx);
+  /* 竞速置换表命中：off 与层无关，直接换算当前层的胜分 */
+  {
+    const e = RACE_MEMO.get(c.hashLo >>> 0);
+    if (e && e.hi === (c.hashHi >>> 0)) {
+      const val = EVAL_WIN - (ply + e.off);
+      return (e.w === 0 ? "A" : "B") === me ? val : -val;
+    }
+  }
+  /* 纵向分离 ≥ 2：此后永不相遇，奇偶近似即精确（入库复用） */
+  if (Math.abs(c.posA.y - c.posB.y) >= 2) {
+    const v = raceEval(c, me, ply, ctx);
+    raceMemoStore(c, me, ply, v);
+    return v;
+  }
 
   const buf = goalDists(c);
   const N = c.size;
@@ -1135,11 +1205,16 @@ function raceRec(c: Core, me: Player, ply: number, alpha: number, beta: number, 
     const nd = buf[base + to.y * N + to.x];
     if (nd >= 0 && nd < myD) cands.push({ to, drop: myD - nd });
   }
-  if (cands.length === 0) return raceEval(c, me, ply, ctx); /* 理论不达（防御） */
+  if (cands.length === 0) {
+    const v = raceEval(c, me, ply, ctx); /* 理论不达（防御） */
+    raceMemoStore(c, me, ply, v);
+    return v;
+  }
   cands.sort((a, b) => b.drop - a.drop);
 
   const isMax = mover === me;
   let best = isMax ? -Infinity : Infinity;
+  let exact = true; /* α-β 剪断的是界值不可入库；胜利捷径按降幅降序先见即最快，可入 */
   for (const cd of cands) {
     const from = mover === "A" ? { x: c.posA.x, y: c.posA.y } : { x: c.posB.x, y: c.posB.y };
     applyPawnC(c, mover, cd.to);
@@ -1154,8 +1229,12 @@ function raceRec(c: Core, me: Player, ply: number, alpha: number, beta: number, 
       if (best < beta) beta = best;
       if (best < -EVAL_WIN / 2) break;
     }
-    if (alpha >= beta) break;
+    if (alpha >= beta) {
+      exact = false;
+      break;
+    }
   }
+  if (exact && Math.abs(best) > EVAL_WIN / 2) raceMemoStore(c, me, ply, best);
   return best;
 }
 
@@ -1460,7 +1539,7 @@ function alphabeta(
   /* 即胜检测：行棋方本手可达终点（考虑占位跳子/斜跳）——任意深度精确。
    * 距离场 O(1) 先筛（dist===1 是必要条件），极少数候选才做全着法核验。 */
   if (coreDist(c, mover0) === 1 && canReachGoalNow(c, mover0)) {
-    return mover0 === me ? EVAL_WIN - ply - 1 : -(EVAL_WIN - ply - 1);
+    return mover0 === me ? EVAL_WIN - ply : -(EVAL_WIN - ply); /* v6.2：到达层 = 本层（与竞速口径一致） */
   }
 
   const alphaOrig = alpha;
@@ -1814,6 +1893,21 @@ function searchMove(
     }
   }
 
+  /* v6 竞速纪律（社长专属）：对手已无板时，板只剩「拦道」一途——
+   * 我不落后（含持平）时，增益 <2 的板全是烧节奏的炫技，根节点直接剪除。
+   * 深搜本可算清，但深宽搜索的评估噪声会偶发偏爱它们（139 手放板
+   * 马拉松的病灶之一）；此门给「聪明」上保险。落后时不动——
+   * 落后时板是反击武器。必须在根分裂切片之前执行，各切片才均衡。 */
+  if (params.discipline) {
+    const dMe = coreDist(c, me);
+    const dOp = coreDist(c, opponent(me));
+    const opW = opponent(me) === "A" ? c.wallsA : c.wallsB;
+    if (opW === 0 && dMe <= dOp) {
+      const kept = cands.filter((cd) => cd.payload.type !== "wall" || (cd.gain ?? 0) >= 2);
+      if (kept.length > 0) cands = kept;
+    }
+  }
+
   /* 并行根分裂（v3）：按交织切片保留本 worker 负责的根候选。
    * 切片在启发式排序 + TT 推荐之后进行——各 worker 确定性同序，
    * 互不重叠且扢满全候选集；每个候选被搜索的深度远深于串行。 */
@@ -1826,6 +1920,7 @@ function searchMove(
   let bestScore = -Infinity;
   let completedDepth = 0;
   let prevScore = -Infinity;
+  let prevElapsed = 0;
 
   /* 根扫描：给定 alpha 下界跑一轮全候选（beta = ∞）。
    * 每轮开始重置延展配额与放板层栈——上轮若被中止，异常展开会
@@ -1930,8 +2025,11 @@ function searchMove(
     }
     const elapsed = Date.now() - ctx.start;
     if (elapsed > params.budgetMs) break;
-    /* 时间外推：下一层开销约 3-4 倍，过半即收笔 */
-    if (elapsed > params.budgetMs * 0.55) break;
+    /* v6 时间外推：下一层开销 ≈ 本层 × 4（保守，少开注定失败的头）；
+     * 预计放得下才开搜。旧 55% 硬线在 TT 命中好时会白白空转近半预算。 */
+    const lastIter = Math.max(elapsed - prevElapsed, 1);
+    prevElapsed = elapsed;
+    if (elapsed + lastIter * 4 > params.budgetMs) break;
   }
 
   _lastStats.nodes = ctx.nodes;

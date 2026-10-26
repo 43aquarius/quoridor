@@ -16,16 +16,16 @@ let poolBroken = false;
 
 function workerTimeoutMs(level: AiLevel): number {
   if (level >= 4) return 10500; /* 社长 6000ms × 1.55 尺寸缩放上限 9300ms，留余量 */
-  if (level === 3) return 4800; /* 总编 2600ms × 1.55 = 4030ms */
-  if (level === 2) return 2600; /* 排字师 800ms × 1.55 = 1240ms */
+  if (level === 3) return 5600; /* 总编 3000ms × 1.55 = 4650ms（v6） */
+  if (level === 2) return 3100; /* 排字师 1000ms × 1.55 = 1550ms（v6） */
   return 2000;
 }
 
 /* 同步兜底的紧预算：Worker 不可用时避免长时间阻塞主线程 */
 function syncBudgetMs(level: AiLevel): number {
-  if (level >= 4) return 1700;
-  if (level === 3) return 1300;
-  if (level === 2) return 560;
+  if (level >= 4) return 2000;
+  if (level === 3) return 1500;
+  if (level === 2) return 650;
   return 280;
 }
 

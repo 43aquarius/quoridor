@@ -209,6 +209,88 @@ function bestAdvance(state: GameState, me: Player, level: AiLevel): AiDecision |
   };
 }
 
+/* ============ 交换后竞速裕度（v4：总编/社长专属） ============
+ * 旧贪心只看「这块板拉长领先者多少」，不管放板烧掉的一手节奏——
+ * 四人局里白送其他三家半步，实测社长与排字师打平的根源。
+ * 裕度模拟：放板后转一圈（各对手推进最优一步，我最后推进），
+ * 重算归途，取「最强对手与我」的差；与不放板的同一模拟比较。
+ * * 放板后裕度必须严格优于纯竞速基准（> +0.5）才出手——烧节奏的板
+ *   一律不放下（紧急拦截天然胜出：基准里领先者转完一圈就赢了，
+ *   裕度为极强负值，任何 gain≥2 的板都能赢过它）；
+ * * 跳子/撞子不模拟（各席独立推进，估值偏保守，不影响排序）。 */
+
+interface SimStep {
+  to: Vec;
+  d: number;
+}
+
+function simAdvance(
+  grids: { h: Uint8Array; v: Uint8Array },
+  from: Vec,
+  p: Player,
+  N: number,
+  occupied: Set<number>,
+): SimStep {
+  const cur = bfsDistanceToGoal(grids, from, p, N);
+  let best: SimStep = { to: from, d: cur };
+  for (let i = 0; i < 4; i++) {
+    const dx = i === 3 ? 1 : i === 2 ? -1 : 0;
+    const dy = i === 1 ? 1 : i === 0 ? -1 : 0;
+    const nx = from.x + dx;
+    const ny = from.y + dy;
+    if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
+    if (edgeBlockedG(grids, from.x, from.y, dx, dy)) continue;
+    const ni = ny * N + nx;
+    if (occupied.has(ni)) continue;
+    const d = bfsDistanceToGoal(grids, { x: nx, y: ny }, p, N);
+    if (d >= 0 && d < best.d) best = { to: { x: nx, y: ny }, d };
+  }
+  return best;
+}
+
+function exchangeMargin(
+  state: GameState,
+  me: Player,
+  actives: Player[],
+  N: number,
+  wall: WallCand | null,
+): number {
+  const W = N - 1;
+  const grids0 = buildWallGrids(state.walls, N);
+  const h2 = wall ? Uint8Array.from(grids0.h) : grids0.h;
+  const v2 = wall ? Uint8Array.from(grids0.v) : grids0.v;
+  if (wall) {
+    const idx = wall.y * W + wall.x;
+    (wall.o === "h" ? h2 : v2)[idx] = 1;
+  }
+  const grids = { h: h2, v: v2 };
+  const pos = new Map<Player, Vec>();
+  for (const p of actives) pos.set(p, { ...pawnOf(state, p) });
+  const occ = new Set<number>();
+  for (const p of actives) occ.add(pawnOf(state, p).y * N + pawnOf(state, p).x);
+  /* 对手先转，我最后（保守：我只剩应对空间） */
+  for (const p of actives) {
+    if (p === me) continue;
+    const from = pos.get(p)!;
+    const step = simAdvance(grids, from, p, N, occ);
+    occ.delete(from.y * N + from.x);
+    occ.add(step.to.y * N + step.to.x);
+    pos.set(p, step.to);
+  }
+  const myFrom = pos.get(me)!;
+  const myStep = simAdvance(grids, myFrom, me, N, occ);
+  pos.set(me, myStep.to);
+  const myFinal = bfsDistanceToGoal(grids, myStep.to, me, N);
+  let worst = Infinity;
+  for (const p of actives) {
+    if (p === me) continue;
+    const d = bfsDistanceToGoal(grids, pos.get(p)!, p, N);
+    const m = d - myFinal;
+    if (m < worst) worst = m;
+  }
+  return worst === Infinity ? 0 : worst;
+}
+
 /* —— 兜底：放一块任何合法的板（极罕见：无子可动） —— */
 function anyWall(state: GameState, me: Player, level: AiLevel): AiDecision | null {
   const N = boardSize(state);
@@ -280,8 +362,12 @@ export function computeAiMove4(
    *    非紧急的随手板增益门槛 2——与二人局学徒同准则） */
   if (level === 1) {
     if (myWalls > 0 && !racing) {
-      /* 紧急 = 领先者临门（≤3 步）或已领先于我；平时 25% 概率也主动拦一道 */
-      const urgent = leader.d <= 3 || leader.d <= myDist;
+      /* v6.1：紧急 = 领先者临门（≤3 步）或我被甩开 ≥2 步（半量拦截）。
+       * 旧版「落后即拦」在四人局里是每手必拦的板海（minGain 1），
+       * 板海意外地强到和高档抛硬币——档位秩序反被破坏；全收窄又会让
+       * 学徒反超排字师。临门 + 被甩开才拦 + 25% 随手（增益门槛 2），
+       * 「会拦临门道」的人设不变。 */
+      const urgent = leader.d <= 3 || leader.d <= myDist - 2;
       if (urgent || Math.random() < 0.25) {
         const minGain = urgent ? 1 : 2;
         const edges = pathEdges(state, leader.p, grids);
@@ -339,17 +425,16 @@ export function computeAiMove4(
     };
     takeFrom(leader.p, cap);
     if (level >= 2 && second && second.d <= leader.d + 2) {
-      /* v3：次威胁廊道全档都看（排字师窗口稍窄），领先者被封后有备无患 */
+      /* 次威胁廊道：L2 起都看（L2 不看会被学徒贴脸，4p 实测 5:4）；
+       * L3/L4 的真实档差来自平先时的裕度纪律与更宽的窗口 */
       takeFrom(second.p, cap + (level >= 3 ? 12 : 8));
     }
 
-    let bestCand: WallCand | null = null;
-    let bestScore = -Infinity;
-    let bestGainLeader = 0;
     /* v3：硬性自伤上限（与学徒同标准）。旧版只有 -3×harmMe 软惩罚，
      * 大增益板仍会带着 2-3 步自伤混过门槛——四人局里自伤等于给
      * 另外两家免费搭车（实测：学徒凭「从不自坑」反超高档的根源）。 */
     const harmCap = leader.d <= 2 ? 2 : leader.d <= 3 ? 1 : 0;
+    const passed: Array<{ c: WallCand; score: number; gainLeader: number }> = [];
     for (const c of cands) {
       const probe = probeWall(grids, c, state, actives, before, N);
       if (!probe) continue;
@@ -375,17 +460,54 @@ export function computeAiMove4(
       if (leader.d <= 2) score += 3;
       // 出界惩罚已由 probe 合法性保证；随机微扰避免机械重复
       score += Math.random() * 0.3;
-      if (score > bestScore) {
-        bestScore = score;
-        bestCand = c;
-        bestGainLeader = gainLeader;
-      }
+      passed.push({ c, score, gainLeader });
     }
+    passed.sort((a, b) => b.score - a.score);
 
     const minGain = leader.d <= 2 ? 1 : 2;
     const minScore = level === 2 ? 3 : 2;
-    if (bestCand && bestScore >= minScore && bestGainLeader >= minGain) {
-      const wall: Wall = { x: bestCand.x, y: bestCand.y, o: bestCand.o, by: me };
+    const gated = passed.filter((x) => x.score >= minScore && x.gainLeader >= minGain);
+
+    if (level >= 3 && gated.length > 0) {
+      /* v4 交换后竞速裕度：贪心分只量「拉长多少」，不量「烧掉的一手节奏」。
+       * 但这只在「平先或领先」时才成立——此时我是被追方，烧一手等于
+       * 白送追赶者半步，幻影增益的板必须拦下。
+       * 「落后」时板是唯一武器：单轮裕度永远算不出正收益，可多轮积累
+       * 的拦道是翻盘正道（实测：门控一刀切后社长被学徒 6:4 反超，
+       * 落后时禁板等于弃械竞速）。故按领先状态分流：
+       * - 平先/领先 → 裕度门控（追兵有板平价出手 / 追兵无板严格 +0.5）；
+       * - 落后 → 贪心放量（gain≥2 的最佳板，r2 行为）。
+       * 紧急拦截在裕度侧无需豁免：基准里领先者转完一圈即胜（裕度大负），
+       * 任何 gain≥2 的拦道板裕度都优于基准，天然入选。 */
+      if (myDist <= leader.d) {
+        const K = level >= 4 ? 5 : 3;
+        const base = exchangeMargin(state, me, actives, N, null);
+        /* v6.1：平价出手回滚——实测 L4:L3 从 17:8 跌到 6:14：
+         * 领先时烧板在四人局同样是败招（r2 老结论成立），
+         * 严格线才是对的。追兵无板与有板同用严格线。 */
+        const threshold = base + 0.5;
+        let pick: WallCand | null = null;
+        let pickMargin = threshold;
+        for (let i = 0; i < Math.min(K, gated.length); i++) {
+          const m = exchangeMargin(state, me, actives, N, gated[i].c);
+          if (m > pickMargin) {
+            pick = gated[i].c;
+            pickMargin = m;
+          }
+        }
+        if (pick) {
+          const wall: Wall = { x: pick.x, y: pick.y, o: pick.o, by: me };
+          return { payload: { type: "wall", wall }, label: WALL_LABEL[level] };
+        }
+        /* 无一块板能赚回节奏 → 推进（贪心的幻影增益就此止步） */
+      } else {
+        const c = gated[0].c;
+        const wall: Wall = { x: c.x, y: c.y, o: c.o, by: me };
+        return { payload: { type: "wall", wall }, label: WALL_LABEL[level] };
+      }
+    } else if (gated.length > 0) {
+      const c = gated[0].c;
+      const wall: Wall = { x: c.x, y: c.y, o: c.o, by: me };
       return { payload: { type: "wall", wall }, label: WALL_LABEL[level] };
     }
   }
