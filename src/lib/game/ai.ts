@@ -62,6 +62,17 @@
  *    陷阱是学徒送终局的主因），改以 420ms 小预算跑受限精确竞速搜索。
  * X. 根分裂并行 4→5 切片；总编也启用竞速纪律保险丝。
  *
+ * 第六轮强化（v8，用户要求继续加强 + 对标 claustrophobia / quoridor-ai 两站）：
+ * Y. 档位提档：排字师 1300→1600ms / 6→7 层，总编 3400→4000ms / 15→17 层，
+ *    社长 6500→8000ms / 18→20 层。验证：产品口径（默认预算，标准开局）
+ *    v8 vs v7 = L2 4:1 / L3 1:1 / L4 2:1（累计 7:3）；等预算不回退（L4 4:2）。
+ * Z. 自博弈开局库（opening-book.ts，默认关）：480 局社长引擎自博弈
+ *    （预算抖动 550~950ms + 25% 根切片随机）生成 103 局面 / 215 着法。
+ *    实测对档位为净负资产（放墙开局与竞速纪律引擎风格错配，L2 产品
+ *    口径 4:6 落后；L4 连败于先手负信号路径），默认关闭——开局库不是
+ *    免费增益，库内容与引擎风格的匹配度才是关键。管线保留，库加厚后
+ *    可 QUORIDOR_AI_BOOK=1 重新评估。
+ *
  * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
  */
 
@@ -78,6 +89,7 @@ import {
 } from "./types";
 import type { AiDecision } from "./types";
 import { computeAiMove4 } from "./ai4";
+import { bookMove } from "./opening-book";
 import {
   buildWallGrids,
   boardSize,
@@ -130,14 +142,19 @@ const OFF_QS = !!ENV.QUORIDOR_AI_OFF_QS; // 墙威胁静止搜索（v4）
 const OFF_WP = !!ENV.QUORIDOR_AI_OFF_WP; // 评估板压项（v4）
 
 export const AI_DEBUG = typeof process !== "undefined" && !!process.env?.QUORIDOR_AI_DEBUG;
+/* 开局库开关：默认关（v8 实测 480 局自博弈库对档位为净负资产——库引导的
+ * 放墙开局与竞速纪律引擎风格错配，且带权随机的方差 > 质量增益；
+ * 生成管线保留，库加厚后可 QUORIDOR_AI_BOOK=1 重新评估启用） */
+const USE_BOOK = !!((typeof process !== "undefined" ? process.env : {}) as Record<string, string | undefined>).QUORIDOR_AI_BOOK;
+const NO_BOOK = !!((typeof process !== "undefined" ? process.env : {}) as Record<string, string | undefined>).QUORIDOR_AI_NO_BOOK;
 
 function levelParams(level: AiLevel, size: number): LevelParams {
   /* BFS 开销随 N² 增长：按尺寸缩放预算 */
   const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.2 : 1.55;
   if (level === 2) {
     return {
-      budgetMs: Math.round(1300 * sizeScale), /* v7：1000→1300 */
-      maxDepth: ENV_DEPTH ?? 6, /* v7：5→6 */
+      budgetMs: Math.round(1600 * sizeScale), /* v8：1300→1600 */
+      maxDepth: ENV_DEPTH ?? 7, /* v8：6→7 */
       wallLimit: ENV_WALLS ?? 16,
       rootWallLimit: ENV_ROOT ?? 24,
       qs: false,
@@ -146,19 +163,19 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(3400 * sizeScale), /* v7：3000→3400 */
-      maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 12 : size === 9 ? 15 : size === 11 ? 9 : 8),
+      budgetMs: Math.round(4000 * sizeScale), /* v8：3400→4000 */
+      maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 13 : size === 9 ? 17 : size === 11 ? 9 : 8),
       wallLimit: ENV_WALLS ?? 22,
       rootWallLimit: ENV_ROOT ?? 36,
       qs: false, /* 消融：短预算下 QS 深度损失 > 战术收益，关 */
-      discipline: true, /* v7：总编也上保险丝（15 层深搜的评估噪声同样会偏爱幻影增益板） */
+      discipline: true, /* v7：总编也上保险丝（深搜的评估噪声同样会偏爱幻影增益板） */
     };
   }
-  /* level 4 社长：最强档全预算（v7：应手最长约 7.2s，典型 4-6s；
+  /* level 4 社长：最强档全预算（v8：应手最长约 8.8s，典型 5-7s；
    * 尺寸缩放限制大开本的上限） */
   return {
-    budgetMs: Math.round(6500 * sizeScale), /* v7：6000→6500 */
-    maxDepth: ENV_DEPTH ?? (size <= 5 ? 18 : size === 7 ? 17 : size === 9 ? 18 : size === 11 ? 11 : 9),
+    budgetMs: Math.round(8000 * sizeScale), /* v8：6500→8000 */
+    maxDepth: ENV_DEPTH ?? (size <= 5 ? 18 : size === 7 ? 17 : size === 9 ? 20 : size === 11 ? 11 : 9),
     wallLimit: ENV_WALLS ?? 24,
     rootWallLimit: ENV_ROOT ?? 44,
     qs: false, /* v6 消融（等预算800ms×6局×6配置）：QS 开→均139手放板马拉松且 3:2，
@@ -2320,6 +2337,13 @@ const WIN_LABEL: Record<AiLevel, string> = {
   4: "社长落锤定音",
 };
 
+const BOOK_LABEL: Record<AiLevel, string> = {
+  1: "学徒翻开了字帖", /* 学徒不走开局库（保持人设），占位文案 */
+  2: "排字师祭出开局定式",
+  3: "总编祭出开局定式",
+  4: "社长祭出开局定式",
+};
+
 export function computeAiMove(
   state: GameState,
   level: AiLevel,
@@ -2354,6 +2378,12 @@ export function computeAiMove(
       };
     }
     if (level === 1) return apprenticeMove(s);
+
+    /* 开局库命中（v8，默认关：见 USE_BOOK 注释）*/
+    if (USE_BOOK && !NO_BOOK && level >= 2 && s.history.length < 10 && s.size === 9 && s.wallsStart === 10) {
+      const bm = bookMove(s);
+      if (bm) return { payload: bm, label: BOOK_LABEL[level] };
+    }
 
     const params = levelParams(level, N);
     const cap = opts?.budgetMs;

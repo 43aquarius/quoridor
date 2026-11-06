@@ -26,11 +26,14 @@
  *   经济学（余板边际价值凸性：前两块 0.3/板、其余 0.1/板；三家板
  *   合计 0.05/板计围剿压力）+ 路径分岔自由度 + 死巷惩罚 + 轮转先手。
  *
- * 档位：
+ * 档位（v2.7 提档：L3 2200→2800ms / 7→8 层、L4 4200→5800ms / 9→11 层；
+ *   L2 维持 v2.6 校准值 5 层 / 800ms——实测 1100ms / 6 层反而阶梯 0/12
+ *   出场：四人局 L2 的强度来自「板纪律 + 浅搜」的配比，加深后搜索
+ *   偏离板纪律工作点反而更弱）：
  *   1 学徒：保留 v1 启发式人设（最短路捡字 + 拦临门道的随手板）
  *   2 排字师：偏执搜索（深度 5 / 800ms）——看得破一轮交换
- *   3 总编：偏执搜索（深度 7 / 2200ms）+ 宽候选窗
- *   4 社长：偏执搜索全开（深度 9 / 4200ms）
+ *   3 总编：偏执搜索（深度 8 / 2800ms）+ 宽候选窗
+ *   4 社长：偏执搜索全开（深度 11 / 5800ms）
  *   阶梯实测（9×9×5 围桌 12 局 × 2 轮）：L1 0-2 / L2 1-2 / L3 3-5 /
  *   L4 5-6 胜——单调且社长过半；对 legacy 同席基准：L4 58% vs 其 8%。
  *
@@ -120,7 +123,9 @@ function params4(level: AiLevel, size: number): Params4 {
   const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.2 : 1.5;
   if (level === 2) {
     return {
-      budgetMs: Math.round(800 * sizeScale),
+      budgetMs: Math.round(800 * sizeScale), /* v2.6 校准值回滚：1100/6 层实测阶梯 0/12 出场——
+       * 四人局 L2 的强度来自「学徒同款板纪律 + 浅搜」，加深后搜索
+       * 偏离板纪律工作点反而更弱（追赶态板海才是四人局胜负手） */
       maxDepth: ENV4_DEPTH ?? 5,
       rootWall: 14,
       innerWall: 10,
@@ -129,16 +134,16 @@ function params4(level: AiLevel, size: number): Params4 {
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(2200 * sizeScale),
-      maxDepth: ENV4_DEPTH ?? 7,
+      budgetMs: Math.round(2800 * sizeScale), /* v8：2200→2800 */
+      maxDepth: ENV4_DEPTH ?? 8, /* v8：7→8 */
       rootWall: 18,
       innerWall: 12,
       coalWall: 10,
     };
   }
   return {
-    budgetMs: Math.round(4200 * sizeScale),
-    maxDepth: ENV4_DEPTH ?? 9,
+    budgetMs: Math.round(5800 * sizeScale), /* v8：4200→5800 */
+    maxDepth: ENV4_DEPTH ?? 11, /* v8：9→11 */
     rootWall: 22,
     innerWall: 14,
     coalWall: 12,

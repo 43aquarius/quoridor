@@ -15,9 +15,9 @@ const pool: Worker[] = [];
 let poolBroken = false;
 
 function workerTimeoutMs(level: AiLevel): number {
-  if (level >= 4) return 12500; /* 社长 6500ms × 1.55 尺寸缩放上限 10075ms，留余量（v7） */
-  if (level === 3) return 6300; /* 总编 3400ms × 1.55 = 5270ms（v7） */
-  if (level === 2) return 3100; /* 排字师 1300ms × 1.55 = 2015ms（v7） */
+  if (level >= 4) return 15000; /* 社长 8000ms × 1.55 尺寸缩放上限 12400ms，留余量（v8） */
+  if (level === 3) return 7500; /* 总编 4000ms × 1.55 = 6200ms（v8） */
+  if (level === 2) return 3100; /* 排字师 1600ms × 1.55 = 2480ms（v8） */
   return 2000;
 }
 
