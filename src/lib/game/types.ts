@@ -125,7 +125,7 @@ export const AI_PROFILES: Record<
     name: "排字师",
     title: "TYPESETTER",
     thinking: "排字师正在排版……",
-    brief: "五层搜索的聪明贪心：算得比你远一步，落后时果断放板延长你的归途。",
+    brief: "六层搜索的聪明贪心：算得比你远一步，落后时果断放板延长你的归途。",
   },
   3: {
     name: "总编",
