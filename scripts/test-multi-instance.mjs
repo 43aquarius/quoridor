@@ -41,7 +41,8 @@ const lobbyWatch = (s) =>
 let pass = 0, fail = 0;
 const check = (name, cond) => {
   console.log(`${cond ? "✅" : "❌"} ${name}`);
-  cond ? pass++ : fail++;
+  if (cond) pass++;
+  else fail++;
 };
 
 async function main() {

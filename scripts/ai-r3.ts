@@ -195,7 +195,8 @@ function traceSeries(pairs: number) {
 }
 
 function await_write(moves: TraceMove[], summary: unknown) {
-  const fs = require("node:fs") as typeof import("node:fs");
+  const fs = globalThis.process && (globalThis as unknown as { require?: (m: string) => typeof import("node:fs") }).require?.("node:fs");
+  if (!fs) return;
   fs.writeFileSync(
     "/home/z/my-project/scripts/r3-trace.json",
     JSON.stringify({ summary, moves }, null, 1),

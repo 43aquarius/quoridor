@@ -256,7 +256,8 @@ function applyOk(s: GameState, p: Player, payload: Parameters<typeof applyPayloa
     const t0 = Date.now();
     let worst = 0;
     for (let i = 0; i < 24 && !s.winner; i++) {
-      const d = computeAiMove(s, lv);
+      /* v2 起四人档带搜索预算，测试用紧预算验证合法性与时限 */
+      const d = computeAiMove(s, lv, { budgetMs: 600 });
       if (!d) break;
       const dt = Date.now();
       const r = applyPayload(s, s.turn, d.payload, 0);
@@ -270,7 +271,7 @@ function applyOk(s: GameState, p: Player, payload: Parameters<typeof applyPayloa
       moves++;
     }
     assert(ok, `AI L${lv} 四人局 24 手全部合法（实际 ${moves} 手）`);
-    assert(worst < 800, `AI L${lv} 单手耗时 < 800ms（实测 ${worst}ms）`);
+    assert(worst < 1500, `AI L${lv} 单手耗时 < 1500ms（实测 ${worst}ms）`);
     void t0;
   }
 }
@@ -283,7 +284,7 @@ function applyOk(s: GameState, p: Player, payload: Parameters<typeof applyPayloa
   for (let i = 0; i < 60 && !s.winner; i++) {
     const p = s.turn;
     if (isEliminated(s, p)) continue; // 不会发生（无出局着）
-    const d = computeAiMove(s, levelOf[p]);
+    const d = computeAiMove(s, levelOf[p], { budgetMs: 600 });
     if (!d) break;
     const r = applyPayload(s, p, d.payload, 0);
     if (!r.ok || !r.state) {

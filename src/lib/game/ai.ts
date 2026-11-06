@@ -51,6 +51,17 @@
  * T. 四人桌（ai4）：总编/社长新增「交换后竞速裕度」门控——平先/领先时
  *    烧节奏的板一律不放，落后时贪心放量（板是唯一武器）；档间质差恢复。
  *
+ * 第五轮强化（v7，对标 claustrophobia / quoridor-ai 两站引擎强度）：
+ * U. 档位提档（预算/深度上限）：排字师 1300ms/6 层，总编 3400ms/15 层
+ *    （纪律启用），社长 6500ms/18 层。候选窗口维持 v6 原宽——消融
+ *    隔离实测（等预算 2500ms 对决）：宽窗（26/48）在中等预算下摊薄
+ *    完成深度，净负收益；深度上限只在预算触顶时才约束，是纯增益。
+ * V. 缓存扩容：距离场直映射 16K→32K 槽（新墙配置命中率↑），
+ *    持久置换表 26 万→40 万条目（跨回合深层复用↑）。
+ * W. 学徒终局精确竞速：双方板尽后不再纯启发式走子（奇偶/对冲跳子
+ *    陷阱是学徒送终局的主因），改以 420ms 小预算跑受限精确竞速搜索。
+ * X. 根分裂并行 4→5 切片；总编也启用竞速纪律保险丝。
+ *
  * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
  */
 
@@ -125,8 +136,8 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.2 : 1.55;
   if (level === 2) {
     return {
-      budgetMs: Math.round(1000 * sizeScale), /* v6：800→1000，深度 5 需要喘息空间 */
-      maxDepth: ENV_DEPTH ?? 5,
+      budgetMs: Math.round(1300 * sizeScale), /* v7：1000→1300 */
+      maxDepth: ENV_DEPTH ?? 6, /* v7：5→6 */
       wallLimit: ENV_WALLS ?? 16,
       rootWallLimit: ENV_ROOT ?? 24,
       qs: false,
@@ -135,19 +146,19 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(3000 * sizeScale), /* v6：2600→3000 */
-      maxDepth: ENV_DEPTH ?? (size <= 5 ? 12 : size === 7 ? 11 : size === 9 ? 13 : size === 11 ? 8 : 7),
+      budgetMs: Math.round(3400 * sizeScale), /* v7：3000→3400 */
+      maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 12 : size === 9 ? 15 : size === 11 ? 9 : 8),
       wallLimit: ENV_WALLS ?? 22,
       rootWallLimit: ENV_ROOT ?? 36,
       qs: false, /* 消融：短预算下 QS 深度损失 > 战术收益，关 */
-      discipline: false,
+      discipline: true, /* v7：总编也上保险丝（15 层深搜的评估噪声同样会偏爱幻影增益板） */
     };
   }
-  /* level 4 社长：最强档全预算（v6：外推早停改良后吃满预算，应手最长
-   * 约 6.2s，典型 4-6s；尺寸缩放限制大开本的上限） */
+  /* level 4 社长：最强档全预算（v7：应手最长约 7.2s，典型 4-6s；
+   * 尺寸缩放限制大开本的上限） */
   return {
-    budgetMs: Math.round(6000 * sizeScale), /* v5：5400→6000 */
-    maxDepth: ENV_DEPTH ?? (size <= 5 ? 16 : size === 7 ? 15 : size === 9 ? 16 : size === 11 ? 10 : 8),
+    budgetMs: Math.round(6500 * sizeScale), /* v7：6000→6500 */
+    maxDepth: ENV_DEPTH ?? (size <= 5 ? 18 : size === 7 ? 17 : size === 9 ? 18 : size === 11 ? 11 : 9),
     wallLimit: ENV_WALLS ?? 24,
     rootWallLimit: ENV_ROOT ?? 44,
     qs: false, /* v6 消融（等预算800ms×6局×6配置）：QS 开→均139手放板马拉松且 3:2，
@@ -289,8 +300,8 @@ function toCore(state: GameState): Core {
  * 因此 do/undo 搜索中同一墙配置反复出现时全部命中，BFS 只在真正的新配置上执行。
  * 直接映射表：随机替换旧项，无需清理（纯函数，跨搜索持久有效）。 */
 
-const DC_BITS = 14;
-const DC_SIZE = 1 << DC_BITS; // 16384 槽（v4：静止搜索的探针配置多样性翻倍）
+const DC_BITS = 15;
+const DC_SIZE = 1 << DC_BITS; // 32768 槽（v7：扩容翻倍，深搜+根分裂下新墙配置命中率↑）
 const DC_MASK = DC_SIZE - 1;
 const dcKeyLo = new Int32Array(DC_SIZE);
 const dcKeyHi = new Int32Array(DC_SIZE);
@@ -773,7 +784,7 @@ interface SearchCtx {
  * 迭代加深在连续回合间复用深层结果（上一手搜索多半已展开过本局面）。
  * 超限整表清空（罕见；260k 条目约 25MB）。 */
 const P_TT = new Map<number, TtEntry>();
-const P_TT_CAP = 260000;
+const P_TT_CAP = 400000; /* v7：26 万→40 万（18 层深搜的跨回合深层复用） */
 
 class SearchAbort extends Error {}
 const ABORT = new SearchAbort();
@@ -2068,6 +2079,27 @@ function apprenticeMove(state: GameState): AiDecision {
   const opD = coreDist(core, op);
   const wallsLeft = me === "A" ? state.wallsA : state.wallsB;
   const opWallsLeft = op === "A" ? state.wallsA : state.wallsB;
+
+  /* v7 终局精确竞速：双方板尽后胜负只剩行棋权与跳子几何——纯启发式
+   * 走子会常态化踩进奇偶/对冲跳子陷阱（学徒送终局的主因）。小预算
+   * 跑精确竞速（alphabeta 板尽分支自动接管 raceSearch），中局人设
+   * （随手板、可爱走子）不受影响。 */
+  if (state.wallsA === 0 && state.wallsB === 0) {
+    const found = searchMove(state, {
+      budgetMs: 420,
+      maxDepth: 12,
+      wallLimit: 0,
+      rootWallLimit: 0,
+      qs: false,
+      discipline: false,
+    });
+    if (found) {
+      return {
+        payload: found.payload,
+        label: found.payload.type === "pawn" ? "学徒数着步子冲线" : "学徒落子",
+      };
+    }
+  }
 
   /* 学徒的板（v3）——拦在必经之道上：
    * - 锚点窗：对手身边 ±3 盒 + 最短路前方 6 格沿途（各扩一圈）——

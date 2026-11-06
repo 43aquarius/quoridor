@@ -15,9 +15,9 @@ const pool: Worker[] = [];
 let poolBroken = false;
 
 function workerTimeoutMs(level: AiLevel): number {
-  if (level >= 4) return 10500; /* 社长 6000ms × 1.55 尺寸缩放上限 9300ms，留余量 */
-  if (level === 3) return 5600; /* 总编 3000ms × 1.55 = 4650ms（v6） */
-  if (level === 2) return 3100; /* 排字师 1000ms × 1.55 = 1550ms（v6） */
+  if (level >= 4) return 12500; /* 社长 6500ms × 1.55 尺寸缩放上限 10075ms，留余量（v7） */
+  if (level === 3) return 6300; /* 总编 3400ms × 1.55 = 5270ms（v7） */
+  if (level === 2) return 3100; /* 排字师 1300ms × 1.55 = 2015ms（v7） */
   return 2000;
 }
 
@@ -29,16 +29,15 @@ function syncBudgetMs(level: AiLevel): number {
   return 280;
 }
 
-/* 根分裂并行度：排字师（2 切片）/总编与社长档（≤4 切片）且核数宽裕时启用。
+/* 根分裂并行度：排字师（2 切片）/总编与社长档（≤5 切片）且核数宽裕时启用。
  * 预留 2 核给 UI/渲染；排字师上限 2（档位增量有限，够看破两步陷阱）；
- * 总编/社长上限 4（根分裂增益有限，功耗与收益平衡）。
- * v4：总编档启用；v5：排字师档也启用（用户两轮反馈均要求更强）。 */
+ * 总编/社长上限 5（v7：4→5，深搜候选多两窗，切片增益仍在线性区）。 */
 function parallelism(state: GameState, level: AiLevel): number {
   if (state.playerCount === 4 || level < 2) return 1;
   const hc = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 1 : 1;
   if (hc < 6) return 1;
   if (level === 2) return Math.min(2, hc - 2);
-  return Math.min(4, hc - 2);
+  return Math.min(5, hc - 2);
 }
 
 interface IterReport {
