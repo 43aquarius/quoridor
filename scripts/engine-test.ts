@@ -179,7 +179,7 @@ function assert(cond: boolean, msg: string) {
       assert(applied.ok, `AI level ${level} 着法合法（${d.payload.type}）`);
     }
     console.log(`  AI level ${level} 用时 ${dt}ms`);
-    const limit = level >= 4 ? 8500 : level === 3 ? 4300 : 1800; /* v8：L4 8000 / L3 4000 / L2 1600，留余量 */
+    const limit = level >= 4 ? 9600 : level === 3 ? 4900 : 2200; /* v9：L4 9000 / L3 4600 / L2 2000，留余量 */
     assert(dt < limit, `AI level ${level} 计算不超时（${dt}ms < ${limit}ms）`);
   }
 }
@@ -309,7 +309,7 @@ function assert(cond: boolean, msg: string) {
         const applied = applyPayload(s, "B", d.payload);
         assert(applied.ok, `AI level ${level} @ ${n} 路 着法合法（${d.payload.type}）`);
       }
-      const limit = level >= 4 ? 10000 : level === 3 ? 5000 : 2100; /* v8：L4 8000×1.2=9600 / L3 4000×1.2=4800，留余量 */
+      const limit = level >= 4 ? 11500 : level === 3 ? 5900 : 2600; /* v9：L4 9000×1.2=10800 / L3 4600×1.2=5520 / L2 2000×1.2=2400，留余量 */
       assert(dt < limit, `AI level ${level} @ ${n} 路不超时（${dt}ms < ${limit}ms）`);
       console.log(`  AI level ${level} @ ${n}×${n} 用时 ${dt}ms`);
     }

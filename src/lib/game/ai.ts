@@ -73,6 +73,19 @@
  *    免费增益，库内容与引擎风格的匹配度才是关键。管线保留，库加厚后
  *    可 QUORIDOR_AI_BOOK=1 重新评估。
  *
+ * 第七轮强化（v9，用户四次要求全面加强）：
+ * AA.（已消融否决）路径咽喉脆弱度叶子项：沿最短路扫描前 8 格取
+ *     「前向岔数」最小值（含可封性核验：两侧锚点均被占的锁死走廊
+ *     不计）作为独木桥惩罚 ±0.22。等预算 800ms 消融（L3 4:12 落后、
+ *     L4 16:14 中性）：深搜（10+ 层）已把对手的惩罚板提入候选窗
+ *     （路径标记 +30），叶子静态项是双重计价——与 v6 QS 教训同构。
+ *     二人局弃用；四人局（搜索浅、联盟窗口自适应收窄致惩罚板
+ *     欠建模）保留待测。
+ * AB. 档位提档：排字师 1600→2000ms / 7→8 层，总编 4000→4600ms /
+ *     17→18 层，社长 8000→9000ms / 20→22 层（ai-client 超时同步上调）。
+ * AC. 学徒终局竞速预算 420→650ms：板尽后更少的奇偶误判（学徒送
+ *     终局的主因仍是竞速精度不足，人设的「笨拙」保留在中局随手板上）。
+ *
  * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
  */
 
@@ -153,8 +166,9 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   const sizeScale = size <= 5 ? 0.55 : size === 7 ? 0.8 : size === 9 ? 1 : size === 11 ? 1.2 : 1.55;
   if (level === 2) {
     return {
-      budgetMs: Math.round(1600 * sizeScale), /* v8：1300→1600 */
-      maxDepth: ENV_DEPTH ?? 7, /* v8：6→7 */
+      budgetMs: Math.round(2000 * sizeScale), /* v9：1600→2000（大棋盘尺寸缩放下深度 7 需要更多时间） */
+      maxDepth: ENV_DEPTH ?? 7, /* v9 消融：8 层产品口径 2:4 落后于 7 层（浅搜档位的工作点在深度，与
+                                  * 四人局 L2「加深偏离板纪律工作点」同构），维持 7 */
       wallLimit: ENV_WALLS ?? 16,
       rootWallLimit: ENV_ROOT ?? 24,
       qs: false,
@@ -163,19 +177,19 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(4000 * sizeScale), /* v8：3400→4000 */
-      maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 13 : size === 9 ? 17 : size === 11 ? 9 : 8),
+      budgetMs: Math.round(4600 * sizeScale), /* v9：4000→4600 */
+      maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 13 : size === 9 ? 18 : size === 11 ? 9 : 8),
       wallLimit: ENV_WALLS ?? 22,
       rootWallLimit: ENV_ROOT ?? 36,
       qs: false, /* 消融：短预算下 QS 深度损失 > 战术收益，关 */
       discipline: true, /* v7：总编也上保险丝（深搜的评估噪声同样会偏爱幻影增益板） */
     };
   }
-  /* level 4 社长：最强档全预算（v8：应手最长约 8.8s，典型 5-7s；
+  /* level 4 社长：最强档全预算（v9：应手最长约 9.8s，典型 6-8s；
    * 尺寸缩放限制大开本的上限） */
   return {
-    budgetMs: Math.round(8000 * sizeScale), /* v8：6500→8000 */
-    maxDepth: ENV_DEPTH ?? (size <= 5 ? 18 : size === 7 ? 17 : size === 9 ? 20 : size === 11 ? 11 : 9),
+    budgetMs: Math.round(9000 * sizeScale), /* v9：8000→9000 */
+    maxDepth: ENV_DEPTH ?? (size <= 5 ? 18 : size === 7 ? 17 : size === 9 ? 22 : size === 11 ? 11 : 9),
     wallLimit: ENV_WALLS ?? 24,
     rootWallLimit: ENV_ROOT ?? 44,
     qs: false, /* v6 消融（等预算800ms×6局×6配置）：QS 开→均139手放板马拉松且 3:2，
@@ -1060,6 +1074,8 @@ function forwardChoices(c: Core, buf: Int16Array, p: Player, d: number): number 
   return cnt;
 }
 
+/* （v9 AA 消融否决：pathChoke/edgeSealable 已随叶子项一并移除，决策记录见文件头。） */
+
 function evaluate(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
   const buf = goalDists(c);
   const N = c.size;
@@ -1116,6 +1132,8 @@ function evaluate(c: Core, me: Player, ply: number, ctx0: SearchCtx): number {
   const fwdMe = Math.min(forwardChoices(c, buf, me, myD), 3);
   const fwdOp = Math.min(forwardChoices(c, buf, opponent(me), opD), 3);
   score += 0.15 * (fwdMe - fwdOp);
+
+  /* v9 AA 消融否决：路径咽喉叶子项在此处移除（见文件头注释）。 */
 
   return score;
 }
@@ -2103,7 +2121,7 @@ function apprenticeMove(state: GameState): AiDecision {
    * （随手板、可爱走子）不受影响。 */
   if (state.wallsA === 0 && state.wallsB === 0) {
     const found = searchMove(state, {
-      budgetMs: 420,
+      budgetMs: 650, /* v9：420→650，板尽后更少的奇偶/对冲误判 */
       maxDepth: 12,
       wallLimit: 0,
       rootWallLimit: 0,

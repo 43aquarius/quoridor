@@ -6,6 +6,8 @@
 import { initialGame, SEAT_ORDER_4, type GameState, type Player } from "../src/lib/game/types";
 import { applyPayload, isEliminated, legalPawnMoves } from "../src/lib/game/engine";
 import { computeAiMove4 } from "../src/lib/game/ai4";
+import { computeAiMove4 as computeAiMove4V8 } from "../src/lib/game/ai4-v8";
+const ENGINE = process.env.LADDER_ENGINE === "v8" ? computeAiMove4V8 : computeAiMove4;
 
 function play(levels: number[], capMs?: number, jitterPlies = 8): Player | null {
   let s: GameState = initialGame({ playerCount: 4, size: 9, wallsPerPlayer: 5 });
@@ -24,7 +26,7 @@ function play(levels: number[], capMs?: number, jitterPlies = 8): Player | null 
         d = { payload: { type: "pawn", from, to: pick }, label: "开局随机" };
       }
     }
-    if (!d) d = computeAiMove4(s, lv, capMs ? { budgetMs: capMs } : undefined);
+    if (!d) d = ENGINE(s, lv, capMs ? { budgetMs: capMs } : undefined);
     if (!d) break;
     const r = applyPayload(s, p, d.payload);
     if (!r.ok || !r.state) {

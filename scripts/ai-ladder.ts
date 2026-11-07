@@ -23,7 +23,8 @@ function play(levelA: AiLevel, levelB: AiLevel): string {
   return s.winner ?? "draw";
 }
 
-function series(name: string, a: AiLevel, b: AiLevel, n = 8) {
+const N = Number(process.env.LADDER_N ?? 8);
+function series(name: string, a: AiLevel, b: AiLevel, n = N) {
   let aw = 0;
   let bw = 0;
   let dr = 0;
@@ -37,6 +38,7 @@ function series(name: string, a: AiLevel, b: AiLevel, n = 8) {
   console.log(`${name}：甲(L${a}) ${aw}胜${pct(aw)} | 乙(L${b}) ${bw}胜${pct(bw)} | 平 ${dr}`);
 }
 
+const ONLY_BOTTOM = process.env.LADDER_SET === "bottom";
 console.log("=== 人类代理（甲）vs AI（乙）阶梯 ===");
 series("弱代理 L1-A vs 学徒L1-B ", 1, 1);
 series("弱代理 L1-A vs 排字L2-B ", 1, 2);
@@ -45,9 +47,11 @@ series("弱代理 L1-A vs 社长L4-B ", 1, 4);
 console.log("---");
 series("中代理 L2-A vs 学徒L1-B ", 2, 1);
 series("中代理 L2-A vs 排字L2-B ", 2, 2);
-series("中代理 L2-A vs 总编L3-B ", 2, 3);
-series("中代理 L2-A vs 社长L4-B ", 2, 4);
-console.log("\n=== AI 执甲强度对照 ===");
-series("总编L3-A vs 学徒L1-B ", 3, 1);
-series("社长L4-A vs 学徒L1-B ", 4, 1);
-series("社长L4-A vs 排字L2-B ", 4, 2);
+if (!ONLY_BOTTOM) {
+  series("中代理 L2-A vs 总编L3-B ", 2, 3);
+  series("中代理 L2-A vs 社长L4-B ", 2, 4);
+  console.log("\n=== AI 执甲强度对照 ===");
+  series("总编L3-A vs 学徒L1-B ", 3, 1);
+  series("社长L4-A vs 学徒L1-B ", 4, 1);
+  series("社长L4-A vs 排字L2-B ", 4, 2);
+}

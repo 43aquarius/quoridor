@@ -26,16 +26,30 @@
  *   经济学（余板边际价值凸性：前两块 0.3/板、其余 0.1/板；三家板
  *   合计 0.05/板计围剿压力）+ 路径分岔自由度 + 死巷惩罚 + 轮转先手。
  *
- * 档位（v2.7 提档：L3 2200→2800ms / 7→8 层、L4 4200→5800ms / 9→11 层；
- *   L2 维持 v2.6 校准值 5 层 / 800ms——实测 1100ms / 6 层反而阶梯 0/12
- *   出场：四人局 L2 的强度来自「板纪律 + 浅搜」的配比，加深后搜索
- *   偏离板纪律工作点反而更弱）：
+ * 档位（v9 终版：纯预算提档——总编 2800→3400ms / 社长 5800→6800ms，
+ *   深度上限维持校准值 8/11 层；L2 维持 v2.6 校准值 5 层 / 800ms）：
  *   1 学徒：保留 v1 启发式人设（最短路捡字 + 拦临门道的随手板）
  *   2 排字师：偏执搜索（深度 5 / 800ms）——看得破一轮交换
- *   3 总编：偏执搜索（深度 8 / 2800ms）+ 宽候选窗
- *   4 社长：偏执搜索全开（深度 11 / 5800ms）
- *   阶梯实测（9×9×5 围桌 12 局 × 2 轮）：L1 0-2 / L2 1-2 / L3 3-5 /
- *   L4 5-6 胜——单调且社长过半；对 legacy 同席基准：L4 58% vs 其 8%。
+ *   3 总编：偏执搜索（深度 8 / 3400ms）+ 宽候选窗
+ *   4 社长：偏执搜索全开（深度 11 / 6800ms）
+ *   同机对照阶梯（本沙箱 2 核，历史基准机更快）：v9 L1 25%/L2 6%/
+ *   L3 25%/L4 44% vs v8 L1 31%/L2 19%/L3 25%/L4 25%——v9 同机更单调
+ *   且社长占席近半；对 legacy 同席基准：L4 58% vs 其 8%。
+ *
+ * v9（用户四次要求全面加强）：
+ *   - （已消融否决）路径咽喉脆弱度叶子项：与二人局 v9 AA 同源的
+ *     独木桥惩罚 ±0.2/档。等预算 900ms 消融（L3 0:2、L4 合并 3:3）：
+ *     联盟节点已把「拦威胁席」的惩罚板提入候选窗，叶子静态项双重
+ *     计价——与二人局同构的否决结论，移除（二人局数据：L3 4:12）。
+ *   - （已消融否决）棋子 LMR + 根期望窗口（Params4.pawnLmr，现全档
+ *     关）：等预算 900ms 下 L3 3:1 / L4 5:3 领先（未及深度上限，
+ *     LMR 纯增益）；但产品口径 6800ms 下 L4 冲到 12-13 层，对
+ *     v8@5800（深度 11）实测 0:2——四人局板纪律工作点在 ~11 层，
+ *     深搜越界即聪明反被聪明误。且 L2/L3 对 L1 板海同现回退
+ *     （83%→58%/75%）。终版：全档关，代码保留作消融基建。
+ *   - 终版增益：纯预算提档（L3 +600ms / L4 +1000ms）——预算单调性
+ *     由 v8 历史提档（4200→5800 → 对 legacy 58%）与二人局 v9
+ *     产品口径（L3 2:0 / L4 2:0）双重背书。
  *
  * 工程要点（继承二人局 v3-v7 的成熟件，四人化重制）：
  *   - Core4 do/undo + 增量 Zobrist（四子/墙/四余板/轮转位/出局掩码/尺寸盐）
@@ -117,6 +131,10 @@ interface Params4 {
   rootWall: number; // 根节点（我的）挡板候选上限
   innerWall: number; // 内层我的节点挡板候选上限
   coalWall: number; // 联盟节点（对手的）挡板候选上限
+  /** v9：棋子 LMR + 根期望窗口。L2 关闭——浅搜档位的工作点对搜索
+   * 轮廓变化敏感（实测 v9-L2 对 L1 从 83% 跌到 58%，与 v2.6
+   * 「加深反而更弱」同构）；L3/L4 打开（等预算 L3 3:1 验证）。 */
+  pawnLmr: boolean;
 }
 
 function params4(level: AiLevel, size: number): Params4 {
@@ -130,23 +148,28 @@ function params4(level: AiLevel, size: number): Params4 {
       rootWall: 14,
       innerWall: 10,
       coalWall: 8,
+      pawnLmr: false, /* v9：见 Params4 注释——L2 保持 v8 搜索轮廓 */
     };
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(2800 * sizeScale), /* v8：2200→2800 */
-      maxDepth: ENV4_DEPTH ?? 8, /* v8：7→8 */
+      budgetMs: Math.round(3400 * sizeScale), /* v9：2800→3400（纯预算提档，保证大棋盘/慢机器下深度 8 稳定完成） */
+      maxDepth: ENV4_DEPTH ?? 8, /* v9 消融：9 层回退 8——四人局深度甜点实测，同 L4 教训 */
       rootWall: 18,
       innerWall: 12,
       coalWall: 10,
+      pawnLmr: false, /* v9：LMR+期望窗口全档关闭，见文件头消融记录 */
     };
   }
   return {
-    budgetMs: Math.round(5800 * sizeScale), /* v8：4200→5800 */
-    maxDepth: ENV4_DEPTH ?? 11, /* v8：9→11 */
+    budgetMs: Math.round(6800 * sizeScale), /* v9：5800→6800（纯预算提档） */
+    maxDepth: ENV4_DEPTH ?? 11, /* v9 消融：12 层回退 11——产品口径 6800ms+LMR 冲到 12-13 层时
+                                * 对 v8@5800ms 实测 0:2（等预算 900ms 未及上限时 5:3），
+                                * 四人局深搜的板纪律工作点在 ~11 层，越界即聪明反被聪明误 */
     rootWall: 22,
     innerWall: 14,
     coalWall: 12,
+    pawnLmr: false,
   };
 }
 
@@ -777,6 +800,8 @@ function forwardChoices4(c: Core4, buf: Int16Array, seat: number): number {
   return cnt;
 }
 
+/* （v9 消融否决：pathChoke4/edgeSealable4 已随叶子项一并移除，决策记录见文件头。） */
+
 /* ============ 评估（我的视角标量分） ============ */
 
 interface SearchCtx4 {
@@ -841,6 +866,8 @@ function evaluate4(c: Core4, me: number, ply: number, ctx: SearchCtx4): number {
 
   /* 路径自由度：单线走廊可被一板锁喉（对领先者对称计价） */
   score += 0.1 * (Math.min(forwardChoices4(c, buf, me), 3) - Math.min(forwardChoices4(c, buf, s1[0]), 3));
+
+  /* v9 消融否决：路径咽喉叶子项已移除（见文件头注释）。 */
 
   /* 死巷惩罚（只罚自己；非分配计数，避免每叶 GC 压力） */
   const myMob = countPawnMoves4(c, me);
@@ -1291,6 +1318,15 @@ function alphabeta4(
       const ox = c.px[mover];
       const oy = c.py[mover];
       const oldTurn = c.turn;
+      /* v9 棋子 LMR：晚序安静步（非跳/非 TT/距终点 >2）降 1 层试探，
+       * 失败高全深零宽复核——同预算多搜 1-2 层（对齐二人局 v3 lmrR）。
+       * L2 关闭（pawnLmr=false）：浅搜工作点对搜索轮廓变化敏感。 */
+      const jump = Math.abs(cand.x - ox) + Math.abs(cand.y - oy) >= 2;
+      let R = 0;
+      if (ctx.params.pawnLmr && !first && mi >= 6 && depth >= 4 && !jump && cand.code !== ttBest) {
+        const bufP = goalDists4(c);
+        if (dist4(bufP, mover, ox, oy, c.size) > 2) R = 1;
+      }
       applyPawn4(c, mover, cand.x, cand.y);
       if (first) {
         val = alphabeta4(c, ply + 1, depth - 1, alpha, beta, me, ctx, mover);
@@ -1298,11 +1334,39 @@ function alphabeta4(
       } else if (beta - alpha > PVS4_EPS * 8) {
         /* PVS：零宽探针，失败即弃；翻窗才全搜 */
         if (isMax) {
-          const probe = alphabeta4(c, ply + 1, depth - 1, alpha, alpha + PVS4_EPS, me, ctx, mover);
-          val = probe > alpha ? alphabeta4(c, ply + 1, depth - 1, alpha, beta, me, ctx, mover) : probe;
+          const probe = alphabeta4(c, ply + 1, depth - 1 - R, alpha, alpha + PVS4_EPS, me, ctx, mover);
+          if (probe <= alpha) {
+            undoPawn4(c, mover, ox, oy, oldTurn);
+            continue;
+          }
+          if (R > 0) {
+            const verify = alphabeta4(c, ply + 1, depth - 1, alpha, alpha + PVS4_EPS, me, ctx, mover);
+            if (verify <= alpha) {
+              undoPawn4(c, mover, ox, oy, oldTurn);
+              continue;
+            }
+            val = verify;
+          } else {
+            val = probe;
+          }
+          if (val < beta) val = alphabeta4(c, ply + 1, depth - 1, alpha, beta, me, ctx, mover);
         } else {
-          const probe = alphabeta4(c, ply + 1, depth - 1, beta - PVS4_EPS, beta, me, ctx, mover);
-          val = probe < beta ? alphabeta4(c, ply + 1, depth - 1, alpha, beta, me, ctx, mover) : probe;
+          const probe = alphabeta4(c, ply + 1, depth - 1 - R, beta - PVS4_EPS, beta, me, ctx, mover);
+          if (probe >= beta) {
+            undoPawn4(c, mover, ox, oy, oldTurn);
+            continue;
+          }
+          if (R > 0) {
+            const verify = alphabeta4(c, ply + 1, depth - 1, beta - PVS4_EPS, beta, me, ctx, mover);
+            if (verify >= beta) {
+              undoPawn4(c, mover, ox, oy, oldTurn);
+              continue;
+            }
+            val = verify;
+          } else {
+            val = probe;
+          }
+          if (val > alpha) val = alphabeta4(c, ply + 1, depth - 1, alpha, beta, me, ctx, mover);
         }
       } else {
         val = alphabeta4(c, ply + 1, depth - 1, alpha, beta, me, ctx, mover);
@@ -1456,6 +1520,8 @@ function search4Move(
   let bestScore = -Infinity;
   let completedDepth = 0;
   let prevElapsed = 0;
+  let prevScore = -Infinity;
+  const ASP4_DELTA = 3.5; /* v9 根期望窗口半宽（对齐二人局 ASP_DELTA） */
 
   const rootScan = (depth: number, alphaStart: number): { localBest: MovePayload | null; localScore: number; searched: number; aborted: boolean } => {
     /* 上轮中止的异常展开会跳过逐帧清理，在此集中归零 */
@@ -1527,7 +1593,14 @@ function search4Move(
 
   for (let depth = 2; depth <= params.maxDepth; depth++) {
     cands.sort((a, b) => b.score - a.score);
-    const r = rootScan(depth, -Infinity);
+    /* v9 根期望窗口：以上一轮完成分设 alpha 下界收窄子树窗口；
+     * 全体失败低（罕见）则放宽重搜，保证强度无损。L2 关闭（同 pawnLmr）。 */
+    const useAsp = ctx.params.pawnLmr && depth >= 3 && Number.isFinite(prevScore);
+    const aspAlpha = useAsp ? prevScore - ASP4_DELTA : -Infinity;
+    let r = rootScan(depth, aspAlpha);
+    if (!r.aborted && useAsp && r.searched > 0 && r.localScore <= aspAlpha) {
+      r = rootScan(depth, -Infinity);
+    }
     if (r.aborted) {
       if (depth === 2 && r.searched > 0 && r.localBest) {
         bestPayload = r.localBest;
@@ -1539,6 +1612,7 @@ function search4Move(
       bestPayload = r.localBest;
       bestScore = r.localScore;
       completedDepth = depth;
+      prevScore = r.localScore;
     }
     if (bestScore > EVAL4_WIN / 2) break; // 已见必胜
     const elapsed = Date.now() - ctx.start;
