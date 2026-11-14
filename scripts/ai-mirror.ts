@@ -54,13 +54,30 @@ for (const level of [2, 3, 4] as const) {
   const P = buildMid(); // 轮到 A
   const dA = computeAiMove(P, level);
 
-  /* 镜像局面：甲乙互换 + 上下翻转，轮到 B */
+  /* 镜像局面：甲乙互换 + 上下翻转，轮到 B。
+   * v10 起根节点读取真实历史（反折返记忆），历史必须一并镜像，
+   * 否则 B 的折返惩罚取自未镜像的甲乙轨迹——假阳性不对称。 */
+  const mirrorHistory = P.history.map((m) => ({
+    ...m,
+    player: m.player === "A" ? ("B" as const) : ("A" as const),
+    payload:
+      m.payload.type === "pawn"
+        ? {
+            type: "pawn" as const,
+            from: mirrorPos(m.payload.from),
+            to: mirrorPos(m.payload.to),
+          }
+        : m.payload.type === "wall"
+          ? { type: "wall" as const, wall: mirrorWall(m.payload.wall) }
+          : { ...m.payload },
+  }));
   const M: GameState = {
     ...P,
     posA: mirrorPos(P.posB),
     posB: mirrorPos(P.posA),
     walls: P.walls.map(mirrorWall),
     turn: "B",
+    history: mirrorHistory,
   };
   const dB = computeAiMove(M, level);
 

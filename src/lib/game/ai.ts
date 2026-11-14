@@ -86,6 +86,32 @@
  * AC. 学徒终局竞速预算 420→650ms：板尽后更少的奇偶误判（学徒送
  *     终局的主因仍是竞速精度不足，人设的「笨拙」保留在中局随手板上）。
  *
+ * 第八轮强化（v10，用户实测「AI 上下左右来回走」彻底修复）：
+ * AD. 反折返记忆（根节点）：同分近似的两个着法间，评估噪声
+ *     （节奏 ±0.25 / 机动 ±0.3 / 岔路 ±0.45）会逐手翻转最优，
+ *     形成可见的原地徘徊（自弈实测每局 1-6 次「刚离开的格又走
+ *     回去」，胜负双方都会犯）。根节点对「即刻折返」（回到上一手
+ *     刚离开的格，-0.8）与「回访」（回到近 2-3 手占用过的格，
+ *     -0.35）计惩罚：量级压过噪声、让位于真实差异（绕行重路 ≥1.0、
+ *     跳子节奏 ±2.0 照常入选）。挡板只增不删、天然无折返，豁免。
+ * AG. 折返惩罚逃逸式升级（v10.2）：单次战术回撤（±2 的跳子节奏/
+ *     避板等待）仍应允许，但「进步-回撤-再进步」的 stutter 步与
+ *     连环往返会在真实历史里累积连续折返计数——惩罚按 2^次数
+ *     翻倍（0.8→1.6→3.2→6.4，封顶），两次折返后引擎必然改选他着，
+ *     长舞器就此收敛。计数基于真实历史（确定性，无模块状态）。
+ * AH. 败势体面纪律（v10.3）：搜索已判明显落后（上轮完成分 < -2）时，
+ *     败方的「岔口等待舞步」（待对手耗板、保双路灵活）理论上有价但
+ *     视觉极差且败局偏向既定——棋子着法加 0.6/步推进偏置、折返
+ *     惩罚 ×2，败方改为边推进边抵抗；挡板反击不受影响（败势板是武器）。
+ * AE. 板尽败局体面推进：纯竞速败方的所有着法同判负——竞速分的
+ *     「拖延对手到达」项会驱使其在对手必经之路上反复横跳抢节奏
+ *     （堵位每手可拖 ≤4-5 分）。败局已定（板尽 + 分值越界）时距离项
+ *     0.01→8/步（v10.2：2.5 压不住 ±4 的堵位拖延，8 为彻底体面
+ *     推进——竞速已数学定局，任何拖延只延长对局不改变结果）；
+ *     有板在场时败局未必成定局，保持原轻折价。
+ * AF. 学徒等距随机挑步剔除「刚离开的格」——随机横跳是学徒档
+ *     「来回走」的主因（人设的可爱保留在随手板与等距多选随机上）。
+ *
  * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
  */
 
@@ -153,6 +179,7 @@ const OFF_RW = !!ENV.QUORIDOR_AI_OFF_RW; // 板尾降深
 const OFF_NMP = !!ENV.QUORIDOR_AI_OFF_NMP; // 空着剪枝（v4）
 const OFF_QS = !!ENV.QUORIDOR_AI_OFF_QS; // 墙威胁静止搜索（v4）
 const OFF_WP = !!ENV.QUORIDOR_AI_OFF_WP; // 评估板压项（v4）
+const OFF_SHUTTLE = !!ENV.QUORIDOR_AI_OFF_SHUTTLE; // v10 反折返/败势体面纪律（A/B 消融用）
 
 export const AI_DEBUG = typeof process !== "undefined" && !!process.env?.QUORIDOR_AI_DEBUG;
 /* 开局库开关：默认关（v8 实测 480 局自博弈库对档位为净负资产——库引导的
@@ -1901,6 +1928,80 @@ function alphabeta(
 
 const ASP_DELTA = 3.5; // 根期望窗口半宽（路径差 ±3.5 内的波动由窄窗覆盖）
 
+/* ============ 反折返记忆（v10 AD + v10.2 AG + v10.5 校准） ============
+ * 从真实历史提取我方近期占用频次：
+ * - P1（即刻折返）：上一手 pawn 的 from（刚离开的格），基础惩罚 0.8；
+ * - 占用频次：候选落点在「近 10 次自身落点」中出现 n 次的惩罚：
+ *   1→0.35、2→0.8、3→1.5、≥4→2.5；
+ * - 连续折返（stutter 步）按 ×2^min(次数,2) 逃逸升级；
+ * - 总封顶 3.0。
+ * 【v10.5 强度校准】A/B 实测（L3 400ms ×20 局）：0.6/步败势偏置 +
+ *   频次 2.0/4.0 + 封顶 6.0 的组合对深搜档位掉分严重（4:16）——深搜
+ *   认证的「等待着法」有 1-2 分真实价值，重惩罚等于自废武功。
+ *   收敛量级到「噪声级（≤0.5）全灭、≤1.2 级多数灭、≥1.5 级战术
+ *   保留」，并在必胜着法上×0.25（最快取胜优先于观感）。 */
+const SHUTTLE_UNDO_PEN = 0.8;
+
+function occPenOf(n: number): number {
+  if (n <= 1) return 0.35;
+  if (n === 2) return 0.8;
+  if (n === 3) return 1.5;
+  return 2.5;
+}
+
+function shuttlePenaltyMap(state: GameState, me: Player): Map<number, number> {
+  const size = state.size;
+  const pen = new Map<number, number>();
+  /* 我的 pawn 着法（旧→新），取最近 12 次（频次窗 10 + 余量；放板着法跳过） */
+  const pawnMoves: PawnPayloadT[] = [];
+  for (let i = state.history.length - 1; i >= 0 && pawnMoves.length < 12; i--) {
+    const m = state.history[i];
+    if (m.player !== me) continue;
+    if (m.payload.type === "pawn") pawnMoves.unshift(m.payload);
+  }
+  if (pawnMoves.length === 0) return pen;
+  /* 最近一次自身行棋是否为 pawn：扫描到第一个自身着法即知 */
+  let lastIsPawn = false;
+  for (let i = state.history.length - 1; i >= 0; i--) {
+    const m = state.history[i];
+    if (m.player !== me) continue;
+    lastIsPawn = m.payload.type === "pawn";
+    break;
+  }
+  const k = pawnMoves.length;
+  /* 频次窗：近 10 次落点（不含当前格 = 最近一次 to） */
+  const winStart = Math.max(0, k - 11);
+  const occ = new Map<number, number>();
+  for (let i = winStart; i < k - 1; i++) {
+    const cell = pawnMoves[i].to.y * size + pawnMoves[i].to.x;
+    occ.set(cell, (occ.get(cell) ?? 0) + 1);
+  }
+  /* 连续折返计数（末尾）：to(i) == from(i-1) */
+  let dance = 0;
+  for (let i = k - 1; i >= Math.max(1, winStart + 1); i--) {
+    const cur = pawnMoves[i];
+    const prev = pawnMoves[i - 1];
+    if (cur.to.x === prev.from.x && cur.to.y === prev.from.y) dance++;
+    else break;
+  }
+  const mult = Math.pow(2, Math.min(dance, 2));
+  const cap = (v: number) => Math.min(v, 3.0);
+  const last = pawnMoves[k - 1];
+  const p1 = last.from.y * size + last.from.x;
+  /* P1：基础 0.8（最近行棋为 pawn）/0.35（放板后）+ 其占用频次项 */
+  const p1Count = occ.get(p1) ?? 0;
+  const p1Base = lastIsPawn ? SHUTTLE_UNDO_PEN : 0.35;
+  pen.set(p1, cap((p1Base + occPenOf(p1Count)) * mult));
+  for (const [cell, n] of occ) {
+    if (cell === p1) continue;
+    const p = cap(occPenOf(n) * mult);
+    if (p > 0) pen.set(cell, p);
+  }
+  return pen;
+}
+
+type PawnPayloadT = { type: "pawn"; from: Vec; to: Vec };
+
 function searchMove(
   state: GameState,
   params: LevelParams,
@@ -1909,6 +2010,9 @@ function searchMove(
 ): { payload: MovePayload; score: number } | null {
   const me = state.turn;
   const c = toCore(state);
+  /* v10 AD/AE：反折返记忆 + 板尽纯竞速标记（败局体面推进用） */
+  const shuttlePen = shuttlePenaltyMap(state, me);
+  const pureRace = state.wallsA === 0 && state.wallsB === 0;
   const ctx: SearchCtx = {
     tt: OFF_PTT ? new Map() : P_TT, /* v3：跨回合持久置换表（可消融退回每回合新建） */
     killers: new Int32Array(MAX_PLY * 2),
@@ -1968,6 +2072,13 @@ function searchMove(
   let prevScore = -Infinity;
   let prevElapsed = 0;
 
+  /* v10.3 AH 败势体面纪律：上一轮完成分 < -2（搜索已判明显落后）时，
+   * 败方的「等待舞步」有理论价值但视觉极差——棋子着法加 0.2/步
+   * 推进偏置（v10.5 校准：0.6/步在 A/B 中掉分严重，0.2 压过噪声级
+   * 等待、让位于 ≥0.5 分的真实战术差异），败方边推进边抵抗；
+   * 挡板反击不受影响（败势板是武器）。 */
+  const losingGate = () => (Number.isFinite(prevScore) && prevScore < -2 ? 1 : 0);
+
   /* 根扫描：给定 alpha 下界跑一轮全候选（beta = ∞）。
    * 每轮开始重置延展配额与放板层栈——上轮若被中止，异常展开会
    * 跳过逐帧清理（exts--/wallPly.pop/undo），在此处集中归零。 */
@@ -1999,9 +2110,19 @@ function searchMove(
           }
           /* 根节点平分破局（着法生效中计价）：同分时优先推进，
            * 否则领先方会原地振荡（自对弈：胜势下 d6↔e6 徘徊不肯走向终点）。
-           * 败势时折价加倍——仍选离终点最近的抵抗。 */
-          val -= coreDist(c, me) * 0.001;
-          if (val < -EVAL_WIN / 2) val -= coreDist(c, me) * 0.01;
+           * 败势时折价加倍——仍选离终点最近的抵抗。
+           * v10 AE：板尽纯竞速的败局已成定局（受限精确搜索已判负），
+           * 距离项 0.01→8/步彻底压过「拖延对手到达」的堵位摆动
+           * （≤4-5/手）——体面直线推进收官，任何拖延只延长对局。
+           * v10.3 AH：软败势（上轮分 < -2）加 0.2/步推进偏置——
+           * 败方的岔口等待舞收敛为边推进边抵抗（量级校准见 v10.5）。 */
+          const losing = OFF_SHUTTLE ? 0 : losingGate();
+          val -= coreDist(c, me) * (0.001 + 0.2 * losing);
+          if (val < -EVAL_WIN / 2) val -= coreDist(c, me) * (pureRace && !OFF_SHUTTLE ? 8 : 0.01);
+          /* v10 AD：反折返计价（v10.5：必胜着法 ×0.25——最快取胜优先） */
+          let sp = OFF_SHUTTLE ? 0 : (shuttlePen.get(cand.payload.to.y * state.size + cand.payload.to.x) ?? 0);
+          if (val > EVAL_WIN / 2) sp *= 0.25;
+          if (sp) val -= sp;
           undoPawnC(c, me, from);
         } else if (cand.payload.type === "wall") {
           const w = cand.payload.wall;
@@ -2250,7 +2371,17 @@ function apprenticeMove(state: GameState): AiDecision {
       if (d === bestD) bestMoves.push(v);
     }
     if (bestMoves.length > 0) {
-      const target = bestMoves[Math.floor(Math.random() * bestMoves.length)];
+      /* v10 AF：等距候选剔除「刚离开的格」（仍有其他等距着时）——
+       * 随机挑步在等距格间反复横跳，是学徒档「来回走」的主因；
+       * 人设的可爱保留在等距多选随机与随手板上。 */
+      const prevOwn = [...state.history].reverse().find((m) => m.player === me && m.payload.type === "pawn");
+      let pool = bestMoves;
+      if (prevOwn && prevOwn.payload.type === "pawn") {
+        const pf = prevOwn.payload.from;
+        const others = bestMoves.filter((v) => !(v.x === pf.x && v.y === pf.y));
+        if (others.length > 0) pool = others;
+      }
+      const target = pool[Math.floor(Math.random() * pool.length)];
       return {
         payload: {
           type: "pawn",

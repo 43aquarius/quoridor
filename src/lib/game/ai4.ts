@@ -51,6 +51,19 @@
  *     由 v8 历史提档（4200→5800 → 对 legacy 58%）与二人局 v9
  *     产品口径（L3 2:0 / L4 2:0）双重背书。
  *
+ * v10（用户实测「AI 上下左右来回走」彻底修复，与二人局 AD/AE 同源）：
+ *   - 反折返记忆（根节点）：同分近似着法间评估噪声逐手翻转最优，
+ *     四人局更甚（三方干扰源多，自弈实测每局最多 12 次「刚离开的
+ *     格又走回去」，同一格一局回访 3 次都有）。根节点棋子候选
+ *     落点命中「上一手刚离开的格」计 -0.8、命中「近 2-3 手占用过
+ *     的格」计 -0.35——压过噪声、让位于真实差异（≥1.0）。
+ *     v10.2 逃逸式升级：真实历史末尾连续折返按 2^次数翻倍惩罚
+ *     （0.8→…→6.4 封顶），stutter 步与连环往返两次后被截断。
+ *   - 板尽败局体面推进：全场无板 + 我必败（分值越界）时，距离项
+ *     8/步彻底压过「拖延胜者到达」的堵位摆动（≤4-5/手），直线
+ *     推进体面收官（竞速已定，拖延只延长对局不改变结果）。
+ *   - 学徒 bestAdvance 等距候选优先不回「刚离开的格」。
+ *
  * 工程要点（继承二人局 v3-v7 的成熟件，四人化重制）：
  *   - Core4 do/undo + 增量 Zobrist（四子/墙/四余板/轮转位/出局掩码/尺寸盐）
  *   - 四向目标距离场直映射缓存（键=墙配置哈希；甲顶行/乙底行/丙右列/丁左列）
@@ -1470,12 +1483,73 @@ function goalAxisDist4(seat: number, x: number, y: number, N: number): number {
   return x;
 }
 
+/* ============ 反折返记忆（v10，与二人局 ai.ts AD/AG + v10.5 校准同源） ============
+ * 频次制 + 连续折返逃逸，量级与二人局 v10.5 一致（深搜认证的等待着法
+ * 有 1-2 分真实价值，重惩罚掉分——详见 ai.ts v10.5 注释）。 */
+const SHUTTLE4_UNDO_PEN = 0.8;
+
+function occPenOf4(n: number): number {
+  if (n <= 1) return 0.35;
+  if (n === 2) return 0.8;
+  if (n === 3) return 1.5;
+  return 2.5;
+}
+
+function shuttlePenaltyMap4(state: GameState, me: Player): Map<number, number> {
+  const size = state.size;
+  const pen = new Map<number, number>();
+  const pawnMoves: Array<{ type: "pawn"; from: Vec; to: Vec }> = [];
+  for (let i = state.history.length - 1; i >= 0 && pawnMoves.length < 12; i--) {
+    const m = state.history[i];
+    if (m.player !== me) continue;
+    if (m.payload.type === "pawn") pawnMoves.unshift(m.payload);
+  }
+  if (pawnMoves.length === 0) return pen;
+  let lastIsPawn = false;
+  for (let i = state.history.length - 1; i >= 0; i--) {
+    const m = state.history[i];
+    if (m.player !== me) continue;
+    lastIsPawn = m.payload.type === "pawn";
+    break;
+  }
+  const k = pawnMoves.length;
+  const winStart = Math.max(0, k - 11);
+  const occ = new Map<number, number>();
+  for (let i = winStart; i < k - 1; i++) {
+    const cell = pawnMoves[i].to.y * size + pawnMoves[i].to.x;
+    occ.set(cell, (occ.get(cell) ?? 0) + 1);
+  }
+  let dance = 0;
+  for (let i = k - 1; i >= Math.max(1, winStart + 1); i--) {
+    const cur = pawnMoves[i];
+    const prev = pawnMoves[i - 1];
+    if (cur.to.x === prev.from.x && cur.to.y === prev.from.y) dance++;
+    else break;
+  }
+  const mult = Math.pow(2, Math.min(dance, 2));
+  const cap = (v: number) => Math.min(v, 3.0);
+  const last = pawnMoves[k - 1];
+  const p1 = last.from.y * size + last.from.x;
+  const p1Count = occ.get(p1) ?? 0;
+  const p1Base = lastIsPawn ? SHUTTLE4_UNDO_PEN : 0.35;
+  pen.set(p1, cap((p1Base + occPenOf4(p1Count)) * mult));
+  for (const [cell, n] of occ) {
+    if (cell === p1) continue;
+    const p = cap(occPenOf4(n) * mult);
+    if (p > 0) pen.set(cell, p);
+  }
+  return pen;
+}
+
 function search4Move(
   state: GameState,
   params: Params4,
 ): { payload: MovePayload; score: number } | null {
   const meSeat = SEAT_IDX[state.turn];
   const c = toCore4(state);
+  /* v10：反折返记忆 + 板尽纯竞速标记（全场无板，败局体面推进用） */
+  const shuttlePen = shuttlePenaltyMap4(state, state.turn);
+  const pureRace4 = activePlayers(state).every((p) => wallsLeftOf(state, p) === 0);
   const ctx: SearchCtx4 = {
     tt: TT4,
     killers: new Int32Array(MAX_PLY4 * 2),
@@ -1527,6 +1601,9 @@ function search4Move(
     /* 上轮中止的异常展开会跳过逐帧清理，在此集中归零 */
     ctx.wallPly.length = 0;
     ctx.wallSeat.length = 0;
+    /* v10.3 AH 败势体面纪律（同二人局 v10.5 校准）：软败势加 0.2/步
+     * 推进偏置（0.6 在二人局 A/B 掉分严重，同步收敛） */
+    const losing = Number.isFinite(prevScore) && prevScore < -2 ? 1 : 0;
     let localBest: MovePayload | null = null;
     let localScore = -Infinity;
     let alpha = alphaStart;
@@ -1547,11 +1624,21 @@ function search4Move(
           val = alphabeta4(c, 1, depth - 1, alpha, Infinity, meSeat, ctx, meSeat);
           /* 根平分破局（着法生效中计价，v2.1 加强）：BFS 距离 + 目标轴距离
            * 双重破局——等距绕行局面（被围后的「走廊两端等长」）会来回踱步，
-           * 轴距离项保证至少贴着目标方向压；败势时折价加倍（最快抵抗）。 */
+           * 轴距离项保证至少贴着目标方向压；败势时折价加倍（最快抵抗）。
+           * v10/v10.5：①反折返计价（必胜着法 ×0.25）；②板尽纯竞速
+           * 败局距离项 8/步彻底体面推进；③软败势 0.2/步推进偏置。 */
           {
             const buf2 = goalDists4(c);
             const tie = dist4(buf2, meSeat, cand.x, cand.y, c.size) * 0.005 + goalAxisDist4(meSeat, cand.x, cand.y, c.size) * 0.002;
             val -= val < -EVAL4_WIN / 2 ? tie * 10 : tie;
+            val -= dist4(buf2, meSeat, cand.x, cand.y, c.size) * 0.2 * losing;
+            let sp = shuttlePen.get(cand.y * c.size + cand.x) ?? 0;
+            if (val > EVAL4_WIN / 2) sp *= 0.25; /* v10.5：必胜着法轻惩罚 */
+            if (sp) val -= sp;
+            if (val < -EVAL4_WIN / 2 && pureRace4) {
+              /* v10.2：8/步彻底体面推进（同二人局 AE，竞速已定局无损） */
+              val -= dist4(buf2, meSeat, cand.x, cand.y, c.size) * 8;
+            }
           }
           undoPawn4(c, meSeat, ox, oy, oldTurn);
           if (val > localScore) {
@@ -1643,16 +1730,24 @@ function bestAdvance(state: GameState, me: Player, level: AiLevel): AiDecision |
   const from = pawnOf(state, me);
   if (legal.length === 0) return null;
   const grids = buildWallGrids(state.walls, N);
-  let best: Vec | null = null;
   let bestD = Infinity;
   for (const v of legal) {
     const d = bfsDistanceToGoal(grids, v, me, N);
-    if (d >= 0 && d < bestD) {
-      bestD = d;
-      best = v;
+    if (d >= 0 && d < bestD) bestD = d;
+  }
+  /* v10：等距最优候选优先不回「刚离开的格」——确定性首取在等距格间
+   * 随对手动态翻转，形成可见的原地徘徊。 */
+  let pool = legal.filter((v) => bfsDistanceToGoal(grids, v, me, N) === bestD);
+  if (pool.length === 0) pool = legal;
+  {
+    const prevOwn = [...state.history].reverse().find((m) => m.player === me && m.payload.type === "pawn");
+    if (prevOwn && prevOwn.payload.type === "pawn") {
+      const pf = prevOwn.payload.from;
+      const others = pool.filter((v) => !(v.x === pf.x && v.y === pf.y));
+      if (others.length > 0) pool = others;
     }
   }
-  if (!best) best = legal[0];
+  const best = pool[0];
   return {
     payload: { type: "pawn", from: { x: from.x, y: from.y }, to: { x: best.x, y: best.y } },
     label: PAWN_LABEL[level],

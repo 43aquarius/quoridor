@@ -193,16 +193,23 @@ function bestAdvance(state: GameState, me: Player, level: AiLevel): AiDecision |
   const from = pawnOf(state, me);
   if (legal.length === 0) return null;
   const grids = buildWallGrids(state.walls, N);
-  let best: Vec | null = null;
   let bestD = Infinity;
   for (const v of legal) {
     const d = bfsDistanceToGoal(grids, v, me, N);
-    if (d >= 0 && d < bestD) {
-      bestD = d;
-      best = v;
+    if (d >= 0 && d < bestD) bestD = d;
+  }
+  /* v10：等距最优候选优先不回「刚离开的格」（同 ai4.ts bestAdvance） */
+  let pool = legal.filter((v) => bfsDistanceToGoal(grids, v, me, N) === bestD);
+  if (pool.length === 0) pool = legal;
+  {
+    const prevOwn = [...state.history].reverse().find((m) => m.player === me && m.payload.type === "pawn");
+    if (prevOwn && prevOwn.payload.type === "pawn") {
+      const pf = prevOwn.payload.from;
+      const others = pool.filter((v) => !(v.x === pf.x && v.y === pf.y));
+      if (others.length > 0) pool = others;
     }
   }
-  if (!best) best = legal[0];
+  const best = pool[0];
   return {
     payload: { type: "pawn", from: { x: from.x, y: from.y }, to: { x: best.x, y: best.y } },
     label: PAWN_LABEL[level],
