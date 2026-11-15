@@ -104,21 +104,26 @@ export function PosterModal() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative flex min-h-[320px] items-center justify-center border border-ink/40 bg-ink/[0.03] p-3">
+        {/* 长卷预览：图片按原宽渲染、容器内滚动通读（长局不再缩成一条细带） */}
+        <div className="relative max-h-[62svh] min-h-[320px] overflow-y-auto border border-ink/40 bg-ink/[0.03] p-3">
           {busy && (
-            <p className="thinking-dots font-mono text-xs tracking-[0.3em] text-ink/60">
-              正在拼版排版……
-            </p>
+            <div className="flex h-[280px] items-center justify-center">
+              <p className="thinking-dots font-mono text-xs tracking-[0.3em] text-ink/60">
+                正在拼版排版……
+              </p>
+            </div>
           )}
           {url && (
             <img
               src={url}
               alt="棋谱海报预览"
-              className="block h-auto max-h-[62svh] w-full border border-ink/30 object-contain"
+              className="block h-auto w-full border border-ink/30 object-contain"
             />
           )}
           {!busy && !url && (
-            <p className="font-mono text-xs text-ink/50">海报生成失败，请重试。</p>
+            <div className="flex h-[280px] items-center justify-center">
+              <p className="font-mono text-xs text-ink/50">海报生成失败，请重试。</p>
+            </div>
           )}
         </div>
 

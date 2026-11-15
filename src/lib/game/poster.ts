@@ -1,6 +1,8 @@
 /* 棋谱海报：把一局对弈排成可收藏的印刷版画（Canvas → PNG）
  * 构图：题头「棋谱」+ 中央棋盘版画（路径叠印 + 步数墨迹 + 铅条挡板）
  * + 下方着法长诗（双色分栏）+ 版记（版次 / 套印色 / 字体 / 纸色）。
+ * 长卷式排版：着法长诗的行距恒定不压缩，画布高度随手数向下生长，
+ * 版记随之顺移；以画布面积安全上限封顶，极端长局温和降行距。
  */
 
 "use client";
@@ -10,7 +12,55 @@ import type { Player, Skin, Vec, Wall } from "./types";
 import { PLAYER4_COLORS, PLAYER_CN, colLetter } from "./types";
 
 const W = 1440;
-const H = 2040;
+const H_MIN = 2040; // 最小画布高（短局沿用原版式；长局由 poemLayout 动态增高）
+
+/* —— 着法长诗几何（长卷式排版的单一事实来源，纯函数便于测试） —— */
+const POEM_TOP = 1640; // 诗区顶部（棋盘 520 + 1000 + 120）
+const POEM_ROW_H = 52; // 舒适行距：正常对局一律用这档，绝不压缩
+const POEM_ROW_H_FLOOR = 22; // 极端长局（>800 手）的行距可读下限
+const POSTER_H_MAX = 11000; // 画布高度上限（1440×11000≈15.8M px，低于移动端 canvas 面积红线 16.7M）
+
+export interface PoemLayout {
+  rows: number; // 需要的诗行总数（两列各半）
+  rowH: number; // 实际行距
+  fontSize: number; // 记谱字号
+  numSize: number; // 序号字号
+  poemBodyTop: number; // 首行基线 y
+  lastBaseline: number; // 末行基线 y
+  footerY: number; // 版记锚点 y（胜负行基线 = footerY - 14）
+  height: number; // 画布总高
+  maxEntries: number; // 版面可容纳的着法条数（超出则截录并标注）
+}
+
+export function poemLayout(moveCount: number): PoemLayout {
+  const rows = Math.max(1, Math.ceil(moveCount / 2));
+  const bodyTop = POEM_TOP + 40;
+  /* 版记自身高 150 + 诗末与版记间 96 + 末行基线下余量 46 */
+  const overhead = 150 + 96 + 46;
+  const budget = POSTER_H_MAX - bodyTop - overhead; // 上限内可铺给行距的总高度
+  /* 舒适行距优先；超长对局按预算温和压缩（整数行距保证基线像素对齐，
+   * 下限 22px），保证版记永不出画 */
+  const rowH = Math.max(
+    POEM_ROW_H_FLOOR,
+    Math.min(POEM_ROW_H, Math.floor(budget / Math.max(1, rows - 1))),
+  );
+  const fitRows = Math.max(1, Math.floor(budget / rowH) + 1);
+  const drawRows = Math.min(rows, fitRows);
+  const last = bodyTop + (drawRows - 1) * rowH;
+  const footerY = Math.max(H_MIN - 150, last + 46 + 96);
+  const fontSize = rowH < 30 ? 18 : rowH < 42 ? 22 : 26;
+  return {
+    rows,
+    rowH,
+    fontSize,
+    numSize: fontSize + 4,
+    poemBodyTop: bodyTop,
+    lastBaseline: last,
+    footerY,
+    height: footerY + 150,
+    maxEntries: drawRows * 2,
+  };
+}
 
 function cssVar(name: string, fallback: string): string {
   if (typeof window === "undefined") return fallback;
@@ -49,13 +99,13 @@ function roundRect(
   ctx.closePath();
 }
 
-function speckle(ctx: CanvasRenderingContext2D, count: number) {
+function speckle(ctx: CanvasRenderingContext2D, count: number, h: number) {
   ctx.save();
   ctx.fillStyle = "#1A1A1A";
   ctx.globalAlpha = 0.045;
   for (let i = 0; i < count; i++) {
     const x = Math.random() * W;
-    const y = Math.random() * H;
+    const y = Math.random() * h;
     const r = Math.random() * 1.6 + 0.4;
     ctx.fillRect(x, y, r, r);
   }
@@ -66,6 +116,10 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
   const serif = cssVar("--font-noto-serif-sc", "'Noto Serif SC', serif");
   const mono = cssVar("--font-plex-mono", "'IBM Plex Mono', monospace");
   await ensureFonts([serif, mono]);
+
+  /* 长卷式排版：先由着手数算好画布高度，再落笔 */
+  const layout = poemLayout(entry.moves.length);
+  const H = layout.height;
 
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -80,10 +134,10 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
     four ? (PLAYER4_COLORS[p] as string) : p === "A" ? skin.a : skin.b;
   const N = Math.max(5, Math.min(13, entry.size ?? 9)); // 开本路数
 
-  /* 纸底 + 颗粒 */
+  /* 纸底 + 颗粒（颗粒密度随画布面积缩放，长卷不失纸感） */
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, W, H);
-  speckle(ctx, 2600);
+  speckle(ctx, Math.round(2600 * (H / 2040)), H);
 
   /* 版框：双线 */
   ctx.strokeStyle = INK;
@@ -260,8 +314,8 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
     drawPawn(lastD?.payload.type === "pawn" ? lastD.payload.to : undefined, "D");
   }
 
-  /* —— 着法长诗 —— */
-  const poemTop = BY + BS + 120;
+  /* —— 着法长诗（长卷式：行距恒定，画布随步数生长，双色分栏） —— */
+  const poemTop = POEM_TOP;
   ctx.strokeStyle = INK;
   ctx.lineWidth = 1.4;
   ctx.beginPath();
@@ -275,29 +329,39 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
     text: m.notation,
   }));
   const colW = (W - 300) / 2;
-  const rowsPerCol = 13;
-  const totalRows = Math.ceil(entries.length / 2);
-  const rowH = totalRows > rowsPerCol ? Math.min(52, 760 / Math.max(1, totalRows)) : 52;
-  const fontSize = rowH < 40 ? 22 : 26;
+  /* 版面装不下时截录前段（仅极端长局），并在诗末如实标注 */
+  const printed = entries.slice(0, layout.maxEntries);
+  const half = Math.max(1, Math.ceil(printed.length / 2));
 
-  ctx.font = `700 ${fontSize + 6}px ${serif}`;
-  entries.forEach((e, i) => {
-    const col = Math.floor(i / Math.max(1, Math.ceil(entries.length / 2)));
-    const row = i % Math.max(1, Math.ceil(entries.length / 2));
+  printed.forEach((e, i) => {
+    const col = Math.floor(i / half);
+    const row = i % half;
     const x = 156 + col * (colW + 20);
-    const y = poemTop + 40 + row * rowH;
-    // 序号
+    const y = layout.poemBodyTop + row * layout.rowH;
+    // 序号（三位数时加宽序号槽，避免与记谱叠字）
     ctx.fillStyle = INK;
-    ctx.font = `700 ${fontSize + 4}px ${serif}`;
+    ctx.font = `700 ${layout.numSize}px ${serif}`;
     ctx.fillText(String(e.n).padStart(2, "0"), x, y);
     // 记谱
     ctx.fillStyle = colorOf(e.player);
-    ctx.font = `500 ${fontSize}px ${mono}`;
-    ctx.fillText(e.text, x + 56, y);
+    ctx.font = `500 ${layout.fontSize}px ${mono}`;
+    ctx.fillText(e.text, x + (e.n >= 100 ? 80 : 56), y);
   });
 
-  /* —— 版记 —— */
-  const footerY = H - 150;
+  if (printed.length < entries.length) {
+    ctx.fillStyle = INK;
+    ctx.globalAlpha = 0.65;
+    ctx.font = `400 22px ${mono}`;
+    ctx.fillText(
+      `—— 篇幅所限，以下 ${entries.length - printed.length} 手从略 ——`,
+      156,
+      layout.lastBaseline + layout.rowH * 0.8,
+    );
+    ctx.globalAlpha = 1;
+  }
+
+  /* —— 版记（随长卷顺移，锚点由 poemLayout 决定） —— */
+  const footerY = layout.footerY;
   ctx.strokeStyle = INK;
   ctx.lineWidth = 1.2;
   ctx.beginPath();
@@ -333,13 +397,17 @@ export async function generatePosterPng(entry: ArchiveEntry, skin: Skin): Promis
     footerY - 14,
   );
   ctx.font = `400 22px ${mono}`;
-  ctx.fillText(
-    `步步为营 QUORIDOR · ${four ? "四色" : "双色"} RISOGRAPH 套印 ${four ? "红·蓝·苔绿·墨黑" : skin.label} · 纸色 草浆纸白 № F5F2EA`,
-    156,
-    footerY + 22,
-  );
+  /* 版记行：左右两段按实测宽度自适应缩字号，杜绝叠印（皮肤标签/四人局文案较长时曾重叠 150~270px） */
+  const imprintL = `步步为营 QUORIDOR · ${four ? "四色" : "双色"} RISOGRAPH 套印 ${four ? "红·蓝·苔绿·墨黑" : skin.label} · 纸色 草浆纸白 № F5F2EA`;
+  const imprintR = `限量印刷 · 棋谱档案馆 第 ${entry.id} 号`;
+  const availW = W - 156 * 2 - 40; // 两端留白 + 中缝
+  const needW = ctx.measureText(imprintL).width + ctx.measureText(imprintR).width;
+  if (needW > availW) {
+    ctx.font = `400 ${Math.max(16, Math.floor(22 * (availW / needW)))}px ${mono}`;
+  }
+  ctx.fillText(imprintL, 156, footerY + 22);
   ctx.textAlign = "right";
-  ctx.fillText(`限量印刷 · 棋谱档案馆 第 ${entry.id} 号`, W - 156, footerY + 22);
+  ctx.fillText(imprintR, W - 156, footerY + 22);
   ctx.textAlign = "left";
 
   return new Promise((resolve) => {
