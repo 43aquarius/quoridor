@@ -112,6 +112,28 @@
  * AF. 学徒等距随机挑步剔除「刚离开的格」——随机横跳是学徒档
  *     「来回走」的主因（人设的可爱保留在随手板与等距多选随机上）。
  *
+ * 第八轮强化（v11，用户继续要求强化）：
+ * AI. 反击着启发（countermove）：墙着法引发剪枝时，回读子节点置换表
+ *     最佳着法记为「驳回该板的应着」——同一块板日后再现，应着提入
+ *     候选窗前排。着法排序三板斧（杀手/历史/反击）补齐最后一块。
+ * AJ. 超晚序安静板降深 +2（idx ≥ 16、深 ≥ 9、非杀手/非 TT 推荐/低分）：
+ *     深层树里超晚序低分板几乎从不翻盘，降两层换深度，逐级复核
+ *     （零宽探针 → ndFull−1 零宽 → 全窗全深）保证不漏战术。
+ * AK. 置换表深度优先替换：同位置的更浅新条目不再驱逐更深的旧条目
+ *     （等深覆盖、浅层让位）——持久表跨回合价值集中在深层结果。
+ *     独立进程计时：同预算节点数 -15%、完成深度 +0.25（L4 1500ms）。
+ * AL.（消融否决，默认关）根节点最短路前方战略板：沿对手距离场下降沿
+ *     前探 8 格、每条下降边两面封锁锚入窗——机制同 v5 学徒「拦在
+ *     路上而非人旁边」。等预算 800ms 消融 4:8（根窗换血在紧预算下
+ *     净负，与 v7 宽窗教训同构），深预算亦无增量（L4 2500ms 4:5）；
+ *     代码保留，QUORIDOR_AI_PW=1 可重评。
+ * AM.（提档尝试回退）总编 4600→5100 / 社长 9000→10000：慢机产品口径
+ *     消融连负（纯提档 1:3），回退 v9 验证值——效率包成为本轮唯一
+ *     落地的搜索改动（等预算 80 局中性，NPS -15% 实测）。
+ * AN.（消融中性，不采纳）L2 候选窗加宽 16/24→20/32：L2 深度封顶、
+ *     预算有闲余，理论上是免费增益；产品口径 37 局 19:18（51%）——
+ *     深度 7 的搜索已覆盖关键着法，加宽只增加噪声候选，维持 v7 窗宽。
+ *
  * 全档支持可变棋盘（5..13 路）与可变挡板数；在 Web Worker 中运行，不阻塞 UI。
  */
 
@@ -180,6 +202,14 @@ const OFF_NMP = !!ENV.QUORIDOR_AI_OFF_NMP; // 空着剪枝（v4）
 const OFF_QS = !!ENV.QUORIDOR_AI_OFF_QS; // 墙威胁静止搜索（v4）
 const OFF_WP = !!ENV.QUORIDOR_AI_OFF_WP; // 评估板压项（v4）
 const OFF_SHUTTLE = !!ENV.QUORIDOR_AI_OFF_SHUTTLE; // v10 反折返/败势体面纪律（A/B 消融用）
+const OFF_CM = !!ENV.QUORIDOR_AI_OFF_CM; // v11-A 反击着启发
+const OFF_LMR2 = !!ENV.QUORIDOR_AI_OFF_LMR2; // v11-B 超晚序安静板降深 +2
+const OFF_TTD = !!ENV.QUORIDOR_AI_OFF_TTD; // v11-C 置换表深度优先替换
+/* v11-D 根节点最短路前方战略板：默认关——等预算 800ms 消融 4:8（根窗
+ * 换血在紧预算下净负，与 v7 宽窗教训同构），深预算亦无增量（L4 2500ms
+ * 4:5）；代码保留，QUORIDOR_AI_PW=1 可重评。 */
+const ON_PW = !!ENV.QUORIDOR_AI_PW;
+const OFF_PW = !ON_PW;
 
 export const AI_DEBUG = typeof process !== "undefined" && !!process.env?.QUORIDOR_AI_DEBUG;
 /* 开局库开关：默认关（v8 实测 480 局自博弈库对档位为净负资产——库引导的
@@ -204,7 +234,8 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(4600 * sizeScale), /* v9：4000→4600 */
+      budgetMs: Math.round(4600 * sizeScale), /* v11 提档尝试 5100 回退：慢机产品口径消融 1:3（深搜越过本机甜点？），
+                                  * 维持 v9 验证值 */
       maxDepth: ENV_DEPTH ?? (size <= 5 ? 14 : size === 7 ? 13 : size === 9 ? 18 : size === 11 ? 9 : 8),
       wallLimit: ENV_WALLS ?? 22,
       rootWallLimit: ENV_ROOT ?? 36,
@@ -215,7 +246,7 @@ function levelParams(level: AiLevel, size: number): LevelParams {
   /* level 4 社长：最强档全预算（v9：应手最长约 9.8s，典型 6-8s；
    * 尺寸缩放限制大开本的上限） */
   return {
-    budgetMs: Math.round(9000 * sizeScale), /* v9：8000→9000 */
+    budgetMs: Math.round(9000 * sizeScale), /* v11 提档尝试 10000 回退：与 L3 同四产品口径偏负，维持 v9 验证值 */
     maxDepth: ENV_DEPTH ?? (size <= 5 ? 18 : size === 7 ? 17 : size === 9 ? 22 : size === 11 ? 11 : 9),
     wallLimit: ENV_WALLS ?? 24,
     rootWallLimit: ENV_ROOT ?? 44,
@@ -836,6 +867,7 @@ interface SearchCtx {
   params: LevelParams;
   wallPly: number[]; // 搜索路径上放板所处的层（断路归责用）
   exts: number; // 当前路径上的战术延展配额（≤ 2）
+  counter: Int32Array; // v11-A 反击着表：父着墙码 → 驳回它的对手回应码（-1 空）
 }
 
 /* 跨回合持久置换表：全哈希含棋子/墙/余板/行棋方/尺寸盐，条目与回合无关，
@@ -892,6 +924,7 @@ function genCandidates(
   ply: number,
   strict: boolean,
   wallLimit: number,
+  prev: number, // v11-A：父着法码（反击着启发用；根节点传 -1）
 ): Cand[] {
   const out: Cand[] = [];
   const N = c.size;
@@ -901,14 +934,20 @@ function genCandidates(
   const op = p === "A" ? c.posB : c.posA;
   const goal = goalRow(p, N);
 
+  /* v11-A 反击着启发：父着（墙）此前被该应着驳回 → 应着优先入序 */
+  const cmB = (code: number): number =>
+    !OFF_CM && ctx && prev >= 0 && prev < WALL_CODE_SPACE && ctx.counter[prev] === code ? 45 : 0;
+
   /* 棋子着法：朝目标优先，跳子加分 */
   for (const to of coreLegalPawnMoves(c, p)) {
     const toward = Math.abs(me.y - goal) - Math.abs(to.y - goal);
     const jump = Math.abs(to.x - me.x) + Math.abs(to.y - me.y) >= 2 ? 1 : 0;
+    const pc = pawnCode(to, N);
+    const cmb = cmB(pc);
     out.push({
-      code: pawnCode(to, N),
+      code: pc,
       payload: { type: "pawn", from: { x: me.x, y: me.y }, to: { x: to.x, y: to.y } },
-      score: toward * 12 + jump * 8,
+      score: toward * 12 + jump * 8 + cmb,
     });
   }
 
@@ -959,6 +998,8 @@ function genCandidates(
       }
       if (code < WALL_CODE_SPACE) score += Math.min(40, ctx.history[code] / 8);
     }
+    const cmb = cmB(code);
+    if (cmb) score += cmb;
     out.push({ code, payload: { type: "wall", wall: { x, y, o, by: p } }, score });
   };
 
@@ -1000,6 +1041,50 @@ function genCandidates(
       const vx = idx - vy * W;
       consider(vx, vy - 2, "v", 3);
       consider(vx, vy + 2, "v", 3);
+    }
+  }
+  /* v11-D 根节点战略板（strict 专属）：沿对手最短路下降沿前探 8 格，
+   * 每条下降边的两面封锁板锚点入窗——远方漏斗口才是 +2 以上的战略
+   * 板所在，身边 ±2 盒只覆盖反应板（学徒 v5「拦在路上而非人旁边」
+   * 的搜索版）。上限内换血（rootWallLimit 不变），不增加根节点耗时。 */
+  if (strict && !OFF_PW) {
+    const bufP = goalDists(c);
+    const opBase = opponent(p) === "A" ? 0 : MAX_CELLS;
+    const gridsP = { h: c.h, v: c.v };
+    let cx = op.x;
+    let cy = op.y;
+    let dd = bufP[opBase + cy * N + cx];
+    for (let step = 0; step < 8 && dd > 0; step++) {
+      let nx = -1;
+      let ny = -1;
+      let ndx = 0;
+      let ndy = 0;
+      for (const [dx, dy] of _pcDirs) {
+        const tx = cx + dx;
+        const ty = cy + dy;
+        if (tx < 0 || tx > N - 1 || ty < 0 || ty > N - 1) continue;
+        if (edgeBlockedG(gridsP, cx, cy, dx, dy)) continue;
+        if (bufP[opBase + ty * N + tx] === dd - 1) {
+          nx = tx;
+          ny = ty;
+          ndx = dx;
+          ndy = dy;
+          break;
+        }
+      }
+      if (nx < 0) break;
+      if (ndy !== 0) {
+        const ay = ndy === -1 ? cy - 1 : cy;
+        consider(cx, ay, "h", 8);
+        consider(cx - 1, ay, "h", 8);
+      } else {
+        const ax = ndx === 1 ? cx : cx - 1;
+        consider(ax, cy, "v", 8);
+        consider(ax, cy - 1, "v", 8);
+      }
+      cx = nx;
+      cy = ny;
+      dd--;
     }
   }
 
@@ -1559,6 +1644,12 @@ function ttStore(
 ) {
   if (Math.abs(score) > EVAL_WIN / 2) return; // 杀着分含距离信息，不入表
   if (ctx.tt.size > P_TT_CAP) ctx.tt.clear();
+  /* v11-C 深度优先替换：同位置的更浅新条目不驱逐更深的旧条目——
+   * 持久置换表的跨回合价值集中在深层结果；等深覆盖、浅层让位。 */
+  if (!OFF_TTD) {
+    const old = ctx.tt.get(key);
+    if (old && (old.hi >>> 0) === (hi >>> 0) && old.depth > depth) return;
+  }
   const flag = score <= alphaOrig ? TT_UPPER : score >= beta ? TT_LOWER : TT_EXACT;
   ctx.tt.set(key, { hi: hi >>> 0, depth, score, flag, best: bestCode });
 }
@@ -1592,6 +1683,7 @@ function alphabeta(
   beta: number,
   me: Player,
   ctx: SearchCtx,
+  prev: number,
 ): number {
   ctx.nodes++;
   if ((ctx.nodes & 255) === 0 && Date.now() > ctx.deadline) throw ABORT;
@@ -1649,9 +1741,9 @@ function alphabeta(
     ctx.inNull = true;
     let nv: number;
     if (mover0 === me) {
-      nv = alphabeta(c, ply + 1, depth - 1 - R, beta - PVS_EPS, beta, me, ctx);
+      nv = alphabeta(c, ply + 1, depth - 1 - R, beta - PVS_EPS, beta, me, ctx, -1);
     } else {
-      nv = alphabeta(c, ply + 1, depth - 1 - R, alpha, alpha + PVS_EPS, me, ctx);
+      nv = alphabeta(c, ply + 1, depth - 1 - R, alpha, alpha + PVS_EPS, me, ctx, -1);
     }
     ctx.inNull = false;
     c.hashLo = (c.hashLo ^ zSideLo) | 0;
@@ -1675,7 +1767,7 @@ function alphabeta(
   if (depth <= 0) return qsearch(c, ply, 0, alpha, beta, me, ctx);
 
   const p = mover0;
-  let cands = genCandidates(c, p, ctx, ply, false, ctx.params.wallLimit);
+  let cands = genCandidates(c, p, ctx, ply, false, ctx.params.wallLimit, prev);
   if (cands.length === 0) return evaluate(c, me, ply, ctx);
 
   if (ttBestCode >= 0) {
@@ -1697,22 +1789,24 @@ function alphabeta(
     for (const cand of cands) {
       const moveIdx = idx++;
       let val: number;
+      let childLo = 0;
+      let childHi = 0;
       if (cand.payload.type === "pawn") {
         const from = p === "A" ? { ...c.posA } : { ...c.posB };
         const jump = Math.abs(cand.payload.to.x - from.x) + Math.abs(cand.payload.to.y - from.y) >= 2;
         const R = lmrR(c, p, ctx, ply, moveIdx, depth, cand.code, ttBestCode, jump);
         applyPawnC(c, p, cand.payload.to);
         if (first) {
-          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx, cand.code);
           first = false;
         } else if (beta - alpha > PVS_EPS * 8) {
-          const probe = alphabeta(c, ply + 1, depth - 1 - R, alpha, alpha + PVS_EPS, me, ctx);
+          const probe = alphabeta(c, ply + 1, depth - 1 - R, alpha, alpha + PVS_EPS, me, ctx, cand.code);
           if (probe <= alpha) {
             undoPawnC(c, p, from);
             continue; // ≤ alpha：不可能是更优
           }
           if (R > 0) {
-            const verify = alphabeta(c, ply + 1, depth - 1, alpha, alpha + PVS_EPS, me, ctx);
+            const verify = alphabeta(c, ply + 1, depth - 1, alpha, alpha + PVS_EPS, me, ctx, cand.code);
             if (verify <= alpha) {
               undoPawnC(c, p, from);
               continue;
@@ -1721,9 +1815,9 @@ function alphabeta(
           } else {
             val = probe;
           }
-          if (val < beta) val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+          if (val < beta) val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx, cand.code);
         } else {
-          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx, cand.code);
         }
         undoPawnC(c, p, from);
       } else if (cand.payload.type === "wall") {
@@ -1745,30 +1839,44 @@ function alphabeta(
          * 中止，早段近似免费；消融实测无条件延展会把 L3 完成深度压低一整层。 */
         const early = Date.now() - ctx.start < ctx.params.budgetMs * 0.4;
         const extend = !OFF_EXT && early && ctx.exts < 2 && newOpD - opD0 >= 2 && newOpD <= 5;
-        /* 板尾 LMR（v3.1）：晚序（idx ≥ 10）、深够（≥ 5）、低分（远离
-         * 对手路径、无杀手/历史加分）的板降 1 层，失败高即全深零宽复核。 */
         const isKiller =
           ply < MAX_PLY && (ctx.killers[ply * 2] === cand.code || ctx.killers[ply * 2 + 1] === cand.code);
+        /* 板尾 LMR（v3.1）+ v11-B 超晚序加深降：晚序（≥10）安静板降 1 层；
+         * 超晚序（≥16）在深节点（≥9）共降 2 层，逐级复核（探针 →
+         * ndFull−1 零宽 → 全窗全深）——分支大头是墙候选，深层树里
+         * 超晚序低分板几乎从不翻盘，降两层换深度。 */
         const rw =
-          !OFF_RW &&
-          !extend &&
-          moveIdx >= 10 &&
-          depth >= 5 &&
-          cand.code !== ttBestCode &&
-          !isKiller &&
-          cand.score < 20
+          (!OFF_RW &&
+            !extend &&
+            moveIdx >= 10 &&
+            depth >= 5 &&
+            cand.code !== ttBestCode &&
+            !isKiller &&
+            cand.score < 20
             ? 1
-            : 0;
+            : 0) +
+          (!OFF_LMR2 &&
+            !extend &&
+            moveIdx >= 16 &&
+            depth >= 9 &&
+            cand.code !== ttBestCode &&
+            !isKiller &&
+            cand.score < 20
+            ? 1
+            : 0);
         const nd = depth - (extend ? 0 : 1) - rw;
         const ndFull = depth - (extend ? 0 : 1);
+        const ndVerify = rw > 1 ? ndFull - 1 : ndFull;
         ctx.wallPly.push(ply);
         applyWallC(c, p, w.x, w.y, w.o);
+        childLo = c.hashLo >>> 0; /* v11-A：剪枝后回读子节点 TT 最佳 = 反击着 */
+        childHi = c.hashHi >>> 0;
         if (extend) ctx.exts++;
         if (first) {
-          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx, cand.code);
           first = false;
         } else if (beta - alpha > PVS_EPS * 8) {
-          const probe = alphabeta(c, ply + 1, nd, alpha, alpha + PVS_EPS, me, ctx);
+          const probe = alphabeta(c, ply + 1, nd, alpha, alpha + PVS_EPS, me, ctx, cand.code);
           if (probe <= alpha) {
             if (extend) ctx.exts--;
             undoWallC(c, p, w.x, w.y, w.o);
@@ -1776,7 +1884,7 @@ function alphabeta(
             continue;
           }
           if (rw > 0) {
-            const verify = alphabeta(c, ply + 1, ndFull, alpha, alpha + PVS_EPS, me, ctx);
+            const verify = alphabeta(c, ply + 1, ndVerify, alpha, alpha + PVS_EPS, me, ctx, cand.code);
             if (verify <= alpha) {
               if (extend) ctx.exts--;
               undoWallC(c, p, w.x, w.y, w.o);
@@ -1787,9 +1895,9 @@ function alphabeta(
           } else {
             val = probe;
           }
-          if (val < beta) val = alphabeta(c, ply + 1, ndFull, alpha, beta, me, ctx);
+          if (val < beta) val = alphabeta(c, ply + 1, ndFull, alpha, beta, me, ctx, cand.code);
         } else {
-          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx, cand.code);
         }
         if (extend) ctx.exts--;
         undoWallC(c, p, w.x, w.y, w.o);
@@ -1803,7 +1911,15 @@ function alphabeta(
       }
       if (best > alpha) alpha = best;
       if (alpha >= beta) {
-        if (cand.payload.type === "wall") noteCutoff(ctx, ply, cand.code, depth);
+        if (cand.payload.type === "wall") {
+          noteCutoff(ctx, ply, cand.code, depth);
+          /* v11-A 反击着记录：子树剪枝时其 TT 最佳着法即「驳回父板的应着」——
+           * 同一块板日后再现时，应着提入候选窗前排 */
+          if (!OFF_CM) {
+            const ce = ctx.tt.get(childLo);
+            if (ce && ce.hi === childHi && ce.best >= 0) ctx.counter[cand.code] = ce.best;
+          }
+        }
         break;
       }
     }
@@ -1818,22 +1934,24 @@ function alphabeta(
     for (const cand of cands) {
       const moveIdx = idx++;
       let val: number;
+      let childLo = 0;
+      let childHi = 0;
       if (cand.payload.type === "pawn") {
         const from = p === "A" ? { ...c.posA } : { ...c.posB };
         const jump = Math.abs(cand.payload.to.x - from.x) + Math.abs(cand.payload.to.y - from.y) >= 2;
         const R = lmrR(c, p, ctx, ply, moveIdx, depth, cand.code, ttBestCode, jump);
         applyPawnC(c, p, cand.payload.to);
         if (first) {
-          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx, cand.code);
           first = false;
         } else if (beta - alpha > PVS_EPS * 8) {
-          const probe = alphabeta(c, ply + 1, depth - 1 - R, beta - PVS_EPS, beta, me, ctx);
+          const probe = alphabeta(c, ply + 1, depth - 1 - R, beta - PVS_EPS, beta, me, ctx, cand.code);
           if (probe >= beta) {
             undoPawnC(c, p, from);
             continue; // ≥ beta 于 min 无益
           }
           if (R > 0) {
-            const verify = alphabeta(c, ply + 1, depth - 1, beta - PVS_EPS, beta, me, ctx);
+            const verify = alphabeta(c, ply + 1, depth - 1, beta - PVS_EPS, beta, me, ctx, cand.code);
             if (verify >= beta) {
               undoPawnC(c, p, from);
               continue;
@@ -1842,9 +1960,9 @@ function alphabeta(
           } else {
             val = probe;
           }
-          if (val > alpha) val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+          if (val > alpha) val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx, cand.code);
         } else {
-          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, depth - 1, alpha, beta, me, ctx, cand.code);
         }
         undoPawnC(c, p, from);
       } else if (cand.payload.type === "wall") {
@@ -1861,26 +1979,42 @@ function alphabeta(
         const extend = !OFF_EXT && early && ctx.exts < 2 && newOpD - opD0 >= 2 && newOpD <= 5;
         const isKiller =
           ply < MAX_PLY && (ctx.killers[ply * 2] === cand.code || ctx.killers[ply * 2 + 1] === cand.code);
+        /* 板尾 LMR（v3.1）+ v11-B 超晚序加深降：晚序（≥10）安静板降 1 层；
+         * 超晚序（≥16）在深节点（≥9）共降 2 层，逐级复核（探针 →
+         * ndFull−1 零宽 → 全窗全深）——分支大头是墙候选，深层树里
+         * 超晚序低分板几乎从不翻盘，降两层换深度。 */
         const rw =
-          !OFF_RW &&
-          !extend &&
-          moveIdx >= 10 &&
-          depth >= 5 &&
-          cand.code !== ttBestCode &&
-          !isKiller &&
-          cand.score < 20
+          (!OFF_RW &&
+            !extend &&
+            moveIdx >= 10 &&
+            depth >= 5 &&
+            cand.code !== ttBestCode &&
+            !isKiller &&
+            cand.score < 20
             ? 1
-            : 0;
+            : 0) +
+          (!OFF_LMR2 &&
+            !extend &&
+            moveIdx >= 16 &&
+            depth >= 9 &&
+            cand.code !== ttBestCode &&
+            !isKiller &&
+            cand.score < 20
+            ? 1
+            : 0);
         const nd = depth - (extend ? 0 : 1) - rw;
         const ndFull = depth - (extend ? 0 : 1);
+        const ndVerify = rw > 1 ? ndFull - 1 : ndFull;
         ctx.wallPly.push(ply);
         applyWallC(c, p, w.x, w.y, w.o);
+        childLo = c.hashLo >>> 0; /* v11-A：剪枝后回读子节点 TT 最佳 = 反击着 */
+        childHi = c.hashHi >>> 0;
         if (extend) ctx.exts++;
         if (first) {
-          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx, cand.code);
           first = false;
         } else if (beta - alpha > PVS_EPS * 8) {
-          const probe = alphabeta(c, ply + 1, nd, beta - PVS_EPS, beta, me, ctx);
+          const probe = alphabeta(c, ply + 1, nd, beta - PVS_EPS, beta, me, ctx, cand.code);
           if (probe >= beta) {
             if (extend) ctx.exts--;
             undoWallC(c, p, w.x, w.y, w.o);
@@ -1888,7 +2022,7 @@ function alphabeta(
             continue;
           }
           if (rw > 0) {
-            const verify = alphabeta(c, ply + 1, ndFull, beta - PVS_EPS, beta, me, ctx);
+            const verify = alphabeta(c, ply + 1, ndVerify, beta - PVS_EPS, beta, me, ctx, cand.code);
             if (verify >= beta) {
               if (extend) ctx.exts--;
               undoWallC(c, p, w.x, w.y, w.o);
@@ -1899,9 +2033,9 @@ function alphabeta(
           } else {
             val = probe;
           }
-          if (val > alpha) val = alphabeta(c, ply + 1, ndFull, alpha, beta, me, ctx);
+          if (val > alpha) val = alphabeta(c, ply + 1, ndFull, alpha, beta, me, ctx, cand.code);
         } else {
-          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx);
+          val = alphabeta(c, ply + 1, nd, alpha, beta, me, ctx, cand.code);
         }
         if (extend) ctx.exts--;
         undoWallC(c, p, w.x, w.y, w.o);
@@ -1915,7 +2049,15 @@ function alphabeta(
       }
       if (best < beta) beta = best;
       if (alpha >= beta) {
-        if (cand.payload.type === "wall") noteCutoff(ctx, ply, cand.code, depth);
+        if (cand.payload.type === "wall") {
+          noteCutoff(ctx, ply, cand.code, depth);
+          /* v11-A 反击着记录：子树剪枝时其 TT 最佳着法即「驳回父板的应着」——
+           * 同一块板日后再现时，应着提入候选窗前排 */
+          if (!OFF_CM) {
+            const ce = ctx.tt.get(childLo);
+            if (ce && ce.hi === childHi && ce.best >= 0) ctx.counter[cand.code] = ce.best;
+          }
+        }
         break;
       }
     }
@@ -2025,9 +2167,10 @@ function searchMove(
     params,
     wallPly: [],
     exts: 0,
+    counter: new Int32Array(WALL_CODE_SPACE).fill(-1),
   };
 
-  let cands = genCandidates(c, me, ctx, 0, true, params.rootWallLimit);
+  let cands = genCandidates(c, me, ctx, 0, true, params.rootWallLimit, -1);
   if (cands.length === 0) return null;
 
   /* 持久置换表的根推荐：上一手搜索多半已展开过本局面，其最佳着法最值得先搜 */
@@ -2101,12 +2244,12 @@ function searchMove(
           const from = me === "A" ? { ...c.posA } : { ...c.posB };
           applyPawnC(c, me, cand.payload.to);
           if (first) {
-            val = alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx);
+            val = alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx, cand.code);
             first = false;
           } else {
             /* 根节点 PVS：零宽探针，失败低即弃（界值留作排序信号） */
-            const probe = alphabeta(c, 1, depth - 1, alpha, alpha + PVS_EPS, me, ctx);
-            val = probe > alpha ? alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx) : probe;
+            const probe = alphabeta(c, 1, depth - 1, alpha, alpha + PVS_EPS, me, ctx, cand.code);
+            val = probe > alpha ? alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx, cand.code) : probe;
           }
           /* 根节点平分破局（着法生效中计价）：同分时优先推进，
            * 否则领先方会原地振荡（自对弈：胜势下 d6↔e6 徘徊不肯走向终点）。
@@ -2129,11 +2272,11 @@ function searchMove(
           ctx.wallPly.push(0);
           applyWallC(c, me, w.x, w.y, w.o);
           if (first) {
-            val = alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx);
+            val = alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx, cand.code);
             first = false;
           } else {
-            const probe = alphabeta(c, 1, depth - 1, alpha, alpha + PVS_EPS, me, ctx);
-            val = probe > alpha ? alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx) : probe;
+            const probe = alphabeta(c, 1, depth - 1, alpha, alpha + PVS_EPS, me, ctx, cand.code);
+            val = probe > alpha ? alphabeta(c, 1, depth - 1, alpha, Infinity, me, ctx, cand.code) : probe;
           }
           val -= coreDist(c, me) * 0.001;
           if (val < -EVAL_WIN / 2) val -= coreDist(c, me) * 0.01;

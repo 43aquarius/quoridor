@@ -64,6 +64,14 @@
  *     推进体面收官（竞速已定，拖延只延长对局不改变结果）。
  *   - 学徒 bestAdvance 等距候选优先不回「刚离开的格」。
  *
+ * v11（用户继续要求强化，第八轮）：
+ *   - （二次消融否决，默认关）路径咽喉脆弱度 v9.1 可封性修正版
+ *     （±0.22、单岔两侧锚均被占不计）：四人局 L3 900ms 消融 1:5——
+ *     与自由度项 0.1× 同特征双重计价，且四人局三家威胁下绕行代价
+ *     远高于二人局。代码保留，QUORIDOR_AI4_CHOKE=1 可重评。
+ *   - 纯预算提档：总编 3400→3800ms / 社长 6800→7600ms（深度帽 8/11
+ *     维持——v9 定论：帽是硬约束，预算只保证慢机器下帽完成更稳）。
+ *
  * 工程要点（继承二人局 v3-v7 的成熟件，四人化重制）：
  *   - Core4 do/undo + 增量 Zobrist（四子/墙/四余板/轮转位/出局掩码/尺寸盐）
  *   - 四向目标距离场直映射缓存（键=墙配置哈希；甲顶行/乙底行/丙右列/丁左列）
@@ -135,6 +143,11 @@ const ENV4_DEPTH = ENV4.QUORIDOR_AI4_DEPTH ? Number(ENV4.QUORIDOR_AI4_DEPTH) : n
 /* 消融：NOWALL=1 根节点不放任何板（纯竞速对照）；ONLYGAIN=n 放板增益门槛覆写 */
 const ENV4_NOWALL = !!ENV4.QUORIDOR_AI4_NOWALL;
 const ENV4_ONLYGAIN = ENV4.QUORIDOR_AI4_ONLYGAIN ? Number(ENV4.QUORIDOR_AI4_ONLYGAIN) : null;
+/* v11-G 路径咽喉项：默认关——四人局 L3 900ms 消融 1:5（负收益：与自由度项
+ * 0.1×同特征双重计价，且四人局三家威胁下绕行代价远高于二人局）。
+ * QUORIDOR_AI4_CHOKE=1 可重评。 */
+const ON4_CHOKE = !!ENV4.QUORIDOR_AI4_CHOKE;
+const OFF4_CHOKE = !ON4_CHOKE;
 
 /* ============ 档位参数 ============ */
 
@@ -166,7 +179,7 @@ function params4(level: AiLevel, size: number): Params4 {
   }
   if (level === 3) {
     return {
-      budgetMs: Math.round(3400 * sizeScale), /* v9：2800→3400（纯预算提档，保证大棋盘/慢机器下深度 8 稳定完成） */
+      budgetMs: Math.round(3800 * sizeScale), /* v11：3400→3800（纯预算提档，深度帽 8 维持——慢机器下帽完成更稳） */
       maxDepth: ENV4_DEPTH ?? 8, /* v9 消融：9 层回退 8——四人局深度甜点实测，同 L4 教训 */
       rootWall: 18,
       innerWall: 12,
@@ -175,7 +188,7 @@ function params4(level: AiLevel, size: number): Params4 {
     };
   }
   return {
-    budgetMs: Math.round(6800 * sizeScale), /* v9：5800→6800（纯预算提档） */
+    budgetMs: Math.round(7600 * sizeScale), /* v11：6800→7600（纯预算提档，深度帽 11 维持——v9 消融：12-13 层越甜点即负收益，帽是硬约束） */
     maxDepth: ENV4_DEPTH ?? 11, /* v9 消融：12 层回退 11——产品口径 6800ms+LMR 冲到 12-13 层时
                                 * 对 v8@5800ms 实测 0:2（等预算 900ms 未及上限时 5:3），
                                 * 四人局深搜的板纪律工作点在 ~11 层，越界即聪明反被聪明误 */
@@ -813,7 +826,76 @@ function forwardChoices4(c: Core4, buf: Int16Array, seat: number): number {
   return cnt;
 }
 
-/* （v9 消融否决：pathChoke4/edgeSealable4 已随叶子项一并移除，决策记录见文件头。） */
+/* ============ v11-G 路径咽喉脆弱度（四人局重评，v9 遗留待测项） ============
+ * 沿 seat 最短路（距离场下降沿）前探 8 格：若存在「前向岔数 = 1」的
+ * 独木桥格，且该岔的两面封锁锚并未均被既有板占用（可封性核验，
+ * v9.1 修正——两面均不可放的岔已永久锁死，不再计脆弱），则该席位
+ * 路径可被一板 +2 以上归途。返回 1（存在可封咽喉）/ 0（无）。
+ * 二人局 v9 消融否决此叶子项（深搜已把惩罚板提入候选窗，双重计价）；
+ * 四人局搜索浅（甜点 8/11 层）且联盟窗口自适应收窄、惩罚板欠建模
+ * ——v9 留档待测假说，本轮以 QUORIDOR_AI4_OFF_CHOKE 消融重评。 */
+function pathChoke4(c: Core4, buf: Int16Array, seat: number): number {
+  const N = c.size;
+  const base = seat * MAX_CELLS;
+  const grids = { h: c.h, v: c.v };
+  let x = c.px[seat];
+  let y = c.py[seat];
+  let d = buf[base + y * N + x];
+  for (let step = 0; step < 8 && d > 0; step++) {
+    let fwd = 0;
+    let ndx = 0;
+    let ndy = 0;
+    let seen = false;
+    for (let k = 0; k < 4; k++) {
+      const dx = k === 2 ? -1 : k === 3 ? 1 : 0;
+      const dy = k === 0 ? -1 : k === 1 ? 1 : 0;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
+      if (edgeBlockedG4(grids, x, y, dx, dy)) continue;
+      if (buf[base + ny * N + nx] === d - 1) {
+        fwd++;
+        if (!seen) {
+          seen = true;
+          ndx = dx;
+          ndy = dy;
+        }
+      }
+    }
+    if (!seen) return 0; /* 距离场与网格不一致（防御） */
+    if (fwd === 1) {
+      /* 单岔可封性核验：两面封锁锚均不可放（冲突或越界）→ 已锁死，不计 */
+      if (ndy !== 0) {
+        const ay = ndy === -1 ? y - 1 : y;
+        if (!(wallFits4(c, x, ay, "h") && wallFits4(c, x - 1, ay, "h"))) return 1;
+      } else {
+        const ax = ndx === 1 ? x : x - 1;
+        if (!(wallFits4(c, ax, y, "v") && wallFits4(c, ax, y - 1, "v"))) return 1;
+      }
+    }
+    /* 前进到下一格（任取一条下降边） */
+    let nx2 = -1;
+    let ny2 = -1;
+    for (let k = 0; k < 4; k++) {
+      const dx = k === 2 ? -1 : k === 3 ? 1 : 0;
+      const dy = k === 0 ? -1 : k === 1 ? 1 : 0;
+      const tx = x + dx;
+      const ty = y + dy;
+      if (tx < 0 || tx > N - 1 || ty < 0 || ty > N - 1) continue;
+      if (edgeBlockedG4(grids, x, y, dx, dy)) continue;
+      if (buf[base + ty * N + tx] === d - 1) {
+        nx2 = tx;
+        ny2 = ty;
+        break;
+      }
+    }
+    if (nx2 < 0) return 0;
+    x = nx2;
+    y = ny2;
+    d--;
+  }
+  return 0;
+}
 
 /* ============ 评估（我的视角标量分） ============ */
 
@@ -880,7 +962,15 @@ function evaluate4(c: Core4, me: number, ply: number, ctx: SearchCtx4): number {
   /* 路径自由度：单线走廊可被一板锁喉（对领先者对称计价） */
   score += 0.1 * (Math.min(forwardChoices4(c, buf, me), 3) - Math.min(forwardChoices4(c, buf, s1[0]), 3));
 
-  /* v9 消融否决：路径咽喉叶子项已移除（见文件头注释）。 */
+  /* v11-G 路径咽喉（四人局重评，v9 待测项）：最短路前 8 格内存在
+   * 「可封单岔」格 = 独木桥，一板即可 +2 以上归途——只对自己罚、
+   * 只奖领先者的咽喉（与自由度项同向，但显式建模「一板即封」的
+   * 最坏情形）。【消融否决：L3 900ms 1:5，默认关，见开关注释】 */
+  if (!OFF4_CHOKE) {
+    const chokeMe = pathChoke4(c, buf, me);
+    const chokeLd = pathChoke4(c, buf, s1[0]);
+    score += 0.22 * (chokeLd - chokeMe);
+  }
 
   /* 死巷惩罚（只罚自己；非分配计数，避免每叶 GC 压力） */
   const myMob = countPawnMoves4(c, me);
