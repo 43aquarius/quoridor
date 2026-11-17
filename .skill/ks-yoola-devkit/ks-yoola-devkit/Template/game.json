@@ -1,0 +1,16 @@
+{
+    "deviceOrientation": "portrait",
+    "showStatusBar": false,
+    "runtimeVersion": "1.0.0",
+    "subpackages": [
+        {
+            "name": "subpackage1",
+            "root": "subpackages/subpackage1/"
+        },
+        {
+            "name": "subpackage2",
+            "root": "subpackages/subpackage2/"
+        }
+    ],
+    "parallelPreloadSubpackages": []
+}

@@ -1,0 +1,5 @@
+{
+  "name": "ks-yoola-devkit",
+  "version": "0.0.3",
+  "description": "快手 Yoola 互动项目 AI 开发 Skill，提供从脚手架初始化、规范约束、编码实现到本地校验与打包的完整工作流。"
+}

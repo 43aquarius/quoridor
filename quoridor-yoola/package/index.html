@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>H5 快手互动应用</title>
+<style>
+  /* ── 浏览器调试：固定 iPhone XR 尺寸 414×896（竖屏默认），在浏览器视口居中 ── */
+  html {
+    width: 414px;
+    height: 896px;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    overflow: hidden;
+    box-shadow: 0 0 0 1px #444;
+    transition: width 0.3s, height 0.3s, transform 0.3s;
+  }
+  html.landscape {
+    width: 896px;
+    height: 414px;
+  }
+  /* Yoola 平台预览由外层 iframe 指定分辨率，画布铺满预览容器 */
+  html.yoola-platform,
+  html.yoola-platform canvas {
+    width: 100%;
+    height: 100%;
+  }
+  html.yoola-platform {
+    position: static;
+    top: auto;
+    left: auto;
+    transform: none;
+    box-shadow: none;
+    transition: none;
+  }
+  canvas {
+    width: 414px;
+    height: 896px;
+    transition: width 0.3s, height 0.3s;
+  }
+  html.landscape canvas {
+    width: 896px;
+    height: 414px;
+  }
+  html.yoola-platform canvas { transition: none; }
+  body {
+    margin: 0;
+    background: #000;
+    overflow: hidden;
+    touch-action: none;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── 胶囊 UI（右上角） ── */
+  #debug-capsule {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 9999;
+    pointer-events: none;
+  }
+
+  /* Home 键 */
+  #debug-home {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(200,200,200,0.55);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #debug-home svg { width: 18px; height: 18px; }
+
+  /* 胶囊条 */
+  #debug-pill {
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 18px;
+    background: rgba(200,200,200,0.55);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #debug-pill span {
+    font-size: 18px;
+    color: rgba(80,80,80,0.9);
+    line-height: 1;
+    letter-spacing: 1px;
+  }
+  #debug-pill .pill-close {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(160,160,160,0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #debug-pill .pill-close svg { width: 10px; height: 10px; }
+
+  /* ── 横竖屏切换按钮（手机框外，左上角） ── */
+  #debug-rotate {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 99999;
+    background: rgba(40,40,40,0.75);
+    border: none;
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #fff;
+    backdrop-filter: blur(4px);
+    user-select: none;
+  }
+  #debug-rotate:hover { background: rgba(60,60,60,0.9); }
+  #debug-rotate svg { width: 16px; height: 16px; transition: transform 0.3s; }
+  html.landscape #debug-rotate svg { transform: rotate(90deg); }
+  html.yoola-platform #debug-rotate { display: none; }
+</style>
+</head>
+<body>
+<canvas id="game" style="display:block"></canvas>
+
+<!-- 胶囊 UI + Home 键（仅浏览器调试用） -->
+<div id="debug-capsule">
+  <div id="debug-home">
+    <svg viewBox="0 0 24 24" fill="none" stroke="rgba(80,80,80,0.85)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 10.5L12 3l9 7.5V21a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V10.5z"/>
+      <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
+  </div>
+  <div id="debug-pill">
+    <span>···</span>
+    <div class="pill-close">
+      <svg viewBox="0 0 10 10" fill="none" stroke="rgba(80,80,80,0.85)" stroke-width="1.5" stroke-linecap="round">
+        <line x1="2" y1="2" x2="8" y2="8"/>
+        <line x1="8" y1="2" x2="2" y2="8"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- 横竖屏切换按钮（浏览器窗口左上角，不在手机框内） -->
+<button id="debug-rotate" title="切换横/竖屏" onclick="toggleOrientation()">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="5" y="2" width="14" height="20" rx="2"/>
+    <line x1="12" y1="18" x2="12" y2="18.5" stroke-width="2.5"/>
+  </svg>
+  <span id="debug-rotate-label">竖屏</span>
+</button>
+
+<script>
+window.canvas = document.getElementById('game');
+
+// 将固定分辨率写入 html 属性，供 kwaiStandard/main.js 浏览器调试时读取
+var _debugHtml = document.documentElement;
+var _isYoolaPlatform = new URLSearchParams(window.location.search).get('src') === 'yoolaPlatform';
+
+if (_isYoolaPlatform) {
+  _debugHtml.classList.add('yoola-platform');
+  _debugHtml.setAttribute('data-debug-w', String(window.innerWidth));
+  _debugHtml.setAttribute('data-debug-h', String(window.innerHeight));
+  window.addEventListener('resize', function () {
+    _debugHtml.setAttribute('data-debug-w', String(window.innerWidth));
+    _debugHtml.setAttribute('data-debug-h', String(window.innerHeight));
+  });
+} else {
+  _debugHtml.setAttribute('data-debug-w', '414');
+  _debugHtml.setAttribute('data-debug-h', '896');
+}
+
+function toggleOrientation() {
+  var isLandscape = _debugHtml.classList.toggle('landscape');
+  // 横竖屏互换 w/h，保持与 CSS 同步
+  _debugHtml.setAttribute('data-debug-w', isLandscape ? '896' : '414');
+  _debugHtml.setAttribute('data-debug-h', isLandscape ? '414' : '896');
+  document.getElementById('debug-rotate-label').textContent = isLandscape ? '横屏' : '竖屏';
+  // 通知 kwaiStandard/main.js 重算 canvas 尺寸
+  window.dispatchEvent(new Event('resize'));
+}
+</script>
+<!-- aigc-init.js 必须最先加载，初始化 AIGCUtils 命名空间和 AIGCUtils.Layout 基础字段 -->
+<script src="kwaiStandard/core/aigc-init.js?v=3"></script>
+<!-- kwaiStandard/ 标准库：资源管理器 / 事件总线 / 分包加载器 / 资源映射表 / 资源路径解析器 -->
+<script src="kwaiStandard/core/kwai-event-bus.js?v=3"></script>
+<script src="kwaiStandard/loaders/subpackage-loader.js?v=3"></script>
+<script src="kwaiStandard/loaders/resource-manifest.js?v=3"></script>
+<script src="kwaiStandard/loaders/resource-loader.js?v=3"></script>
+<script src="kwaiStandard/manager/game-logger.js?v=3"></script>
+<!-- Spine 3.8 运行时 + 特效渲染器（共享主画布 WebGL 上下文） -->
+<script src="kwaiStandard/engines/spine38.js?v=3"></script>
+<script src="kwaiStandard/engines/spine-fx.js?v=3"></script>
+<script src="kwaiStandard/core/kwai-ad-config.js?v=3"></script>
+<script src="kwaiOpenApi/kwai-login.js?v=3"></script>
+<script src="kwaiOpenApi/kwai-ad.js?v=3"></script>
+<script src="kwaiOpenApi/kwai-repost.js?v=3"></script>
+<script src="kwaiOpenApi/kwai-ui.js?v=3"></script>
+<script src="kwaiOpenApi/kwai-render.js?v=3"></script>
+<script src="kwaiOpenApi/kwai-storage.js?v=3"></script>
+<!-- 在下方按依赖顺序追加业务 js 文件；kwaiStandard/main.js 保持最后 -->
+<script src="gameplay/play/engine.js?v=3"></script>
+<script src="gameplay/play/ai.js?v=3"></script>
+<script src="gameplay/render/ui.js?v=3"></script>
+<script src="gameplay/render/board.js?v=3"></script>
+<script src="gameplay/render/gl.js?v=3"></script>
+<script src="gameplay/scene/home.js?v=3"></script>
+<script src="gameplay/scene/game.js?v=3"></script>
+<script src="gameplay/play/main.js?v=3"></script>
+<script src="kwaiStandard/main.js?v=3"></script>
+</body>
+</html>

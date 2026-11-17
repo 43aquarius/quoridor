@@ -1,0 +1,10 @@
+{
+  "description": "快手互动玩法项目配置文件",
+  "projectname": "步步为营",
+  "appid": "kwai_game_test_appid",
+  "setting": {
+    "es6": false
+  },
+  "engine_type": "frog",
+  "aigc_skill_version": "0.0.3"
+}
