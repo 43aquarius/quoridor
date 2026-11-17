@@ -1,460 +1,156 @@
-/* 步步为营 — AI（移植自 Web 版 v10 的评估与候选窗口，压缩为单文件 ES5）
- * 三档位：
- *   1 学徒：一层贪心 + 扰动；2 排字师：两层搜索；3 总编：迭代加深至 4 层（时间封顶）。
- * 评估项（系数与 Web 版对齐）：路径差 + 板差·线性 + 板差·交换 + 板压交叉项 +
- *   行棋权节奏 + 对冲跳子修正 + 死巷惩罚 + 路径分岔自由度。
- * 核心：目标线反向 BFS 距离场缓存——棋子移动 O(1) 查距，放板才重建双场。
+/* 《步步为营》核心模块 —— 由 Web 版 src/lib/game 原样移植（esbuild 打包）
+ * 运行时仅依赖 Date/Math/JSON 等标准全局，无 DOM / 网络 / Worker。
  */
-(function () {
-  var G = window.AIGCUtils = window.AIGCUtils || {};
-  var E = G.Engine;
-  var MAX_CELLS = 169;
-  var EVAL_WIN = 10000;
+var QAi=(()=>{var He=Object.defineProperty;var Nt=Object.getOwnPropertyDescriptor;var Tt=Object.getOwnPropertyNames;var zt=Object.prototype.hasOwnProperty;var Ht=(n,e)=>{for(var o in e)He(n,o,{get:e[o],enumerable:!0})},Ft=(n,e,o,t)=>{if(e&&typeof e=="object"||typeof e=="function")for(let r of Tt(e))!zt.call(n,r)&&r!==o&&He(n,r,{get:()=>e[r],enumerable:!(t=Nt(e,r))||t.enumerable});return n};var Gt=n=>Ft(He({},"__esModule",{value:!0}),n);var bs={};Ht(bs,{computeAiMove:()=>Rt,lastSearchStats:()=>Et});var go=["A","C","B","D"];function hn(n,e=9){return n==="A"?0:e-1}function Bn(n,e,o,t=9){return n==="A"?o===0:n==="B"?o===t-1:n==="C"?e===t-1:n==="D"?e===0:!1}function T(n){return n==="A"?"B":"A"}var Ut=[[0,-1],[0,1],[-1,0],[1,0]],Ue=169;function F(n){return Number.isFinite(n?.size)?n.size:9}function Vt(n){return n?.playerCount===4?go:["A","B"]}function Dn(n){let e=n?.eliminated??[];return Vt(n).filter(o=>!e.includes(o))}function Pe(n,e){return(n?.eliminated??[]).includes(e)}function j(n,e){if(e==="A")return n.posA;if(e==="B")return n.posB;let o=(F(n)-1)/2;return e==="C"?n.posC??{x:0,y:o}:n.posD??{x:F(n)-1,y:o}}function Qt(n){let e=[n.posA,n.posB];if(n?.playerCount===4){let o=(F(n)-1)/
+2;e.push(n.posC??{x:0,y:o}),e.push(n.posD??{x:F(n)-1,y:o})}return e}function ln(n,e){return e==="A"?n.wallsA:e==="B"?n.wallsB:e==="C"?Number.isFinite(n.wallsC)?n.wallsC:n.wallsStart:Number.isFinite(n.wallsD)?n.wallsD:n.wallsStart}function on(n,e=9){let o=e-1,t=new Uint8Array(o*o),r=new Uint8Array(o*o);for(let i of n)i.o==="h"?t[i.y*o+i.x]=1:r[i.y*o+i.x]=1;return{h:t,v:r}}function xo(n){let e=n.h.length||n.v.length;return Math.round(Math.sqrt(e))||8}function H(n,e,o,t,r){let i=xo(n),s=i-1;return r===-1?!!(e<=s&&n.h[(o-1)*i+e]||e>0&&n.h[(o-1)*i+e-1]):r===1?!!(e<=s&&n.h[o*i+e]||e>0&&n.h[o*i+e-1]):t===1?!!(o<=s&&n.v[o*i+e]||o>
+0&&n.v[(o-1)*i+e]):t===-1?!!(o<=s&&n.v[o*i+e-1]||o>0&&n.v[(o-1)*i+e-1]):!1}function Fe(n,e,o,t,r){for(let i of n){if(r!==0&&i.o==="h"){let s=r===1?o:o-1;if(i.y===s&&(i.x===e||i.x===e-1))return!0}if(t!==0&&i.o==="v"){let s=t===1?e:e-1;if(i.x===s&&(i.y===o||i.y===o-1))return!0}}return!1}function Kn(n,e,o,t){for(let r of n)if(t==="h"){if(r.o==="h"&&r.y===o&&Math.abs(r.x-e)<=1||r.o==="v"&&r.x===e&&r.y===
+o)return!0}else if(r.o==="v"&&r.x===e&&Math.abs(r.y-o)<=1||r.o==="h"&&r.x===e&&r.y===o)return!0;return!1}function Xt(n,e,o,t){for(let r of n)if(t==="h"){if(r.o==="h"&&r.y===o&&Math.abs(r.x-e)<=1)return"overlap";if(r.o==="v"&&r.x===e&&r.y===o)return"cross"}else{if(r.o==="v"&&r.x===e&&Math.abs(r.y-o)<=1)return"overlap";if(r.o==="h"&&r.x===e&&r.y===o)return"cross"}return null}var Ae=new Int16Array(Ue),
+Ge=new Int16Array(Ue),we=new Uint8Array(Ue);function jt(n){return xo(n)+1}function $t(n,e){return n==="A"?{axisX:!1,v:0}:n==="B"?{axisX:!1,v:e-1}:n==="C"?{axisX:!0,v:e-1}:{axisX:!0,v:0}}function q(n,e,o,t){let r=t??jt(n),i=$t(o,r);if(i.axisX?e.x===i.v:e.y===i.v)return 0;Ae.fill(-1),we.fill(0);let s=e.y*r+e.x;Ae[s]=0,we[s]=1;let a=0,l=0;for(Ge[l++]=s;a<l;){let u=Ge[a++],y=u%r,c=(u-y)/r,m=Ae[u];if(i.
+axisX?y===i.v:c===i.v)return m;for(let b=0;b<4;b++){let P=b===3?1:b===2?-1:0,p=b===1?1:b===0?-1:0,f=y+P,h=c+p;if(f<0||f>r-1||h<0||h>r-1||H(n,y,c,P,p))continue;let d=h*r+f;we[d]||(we[d]=1,Ae[d]=m+1,Ge[l++]=d)}}return-1}function an(n,e){let o=F(n),t=j(n,e),r=Qt(n).filter(a=>a!==t&&!(a.x===t.x&&a.y===t.y)),i=(a,l)=>r.some(u=>u.x===a&&u.y===l),s=[];for(let[a,l]of Ut){let u=t.x+a,y=t.y+l;if(!(u<0||u>o-1||y<0||y>o-1)&&!Fe(n.walls,t.x,t.y,a,l))if(i(u,y)){let c=t.x+2*a,m=t.y+2*l;if(c>=0&&c<=o-1&&m>=0&&m<=o-1&&!Fe(n.walls,u,y,a,l)&&!i(c,m)){s.push({x:c,y:m});continue}let p=a!==0?[[0,-1],[0,1]]:[[-1,0],[1,0]];for(let[f,h]of p){
+let d=u+f,x=y+h;d<0||d>o-1||x<0||x>o-1||Fe(n.walls,u,y,f,h)||i(d,x)||s.push({x:d,y:x})}}else s.push({x:u,y})}return s}function kn(n,e,o,t,r){let i=F(n);if(e<0||e>i-2||o<0||o>i-2)return{ok:!1,reason:"out-of-bounds"};if(ln(n,r)<=0)return{ok:!1,reason:"no-walls"};let a=Xt(n.walls,e,o,t);if(a==="overlap")return{ok:!1,reason:"overlap"};if(a==="cross")return{ok:!1,reason:"cross"};let l=on(n.walls,i);t===
+"h"?l.h[o*(i-1)+e]=1:l.v[o*(i-1)+e]=1;for(let u of Dn(n))if(q(l,j(n,u),u,i)<0)return{ok:!1,reason:"no-path"};return{ok:!0}}var Zn={1:"学徒随手排了一根铅条",2:"排字师延长了领先者的归途",3:"总编落下一道围桌版式",4:"社长批下一道终审版式"},qt={1:"学徒循最短路径捡字",2:"排字师沿最短路赶稿",3:"总编审定了去路",4:"社长亲自排定了去路"},Kt={1:"学徒摸到了终点",2:"排字师一步定版",3:"总编拍板收官",4:"社长落锤定音"},Yn=new Int16Array(
+169),ge=new Int16Array(169),Ve=new Int16Array(169);function Yt(n,e){return n==="A"?{axisX:!1,v:0}:n==="B"?{axisX:!1,v:e-1}:n==="C"?{axisX:!0,v:e-1}:{axisX:!0,v:0}}function Mo(n,e,o){let t=F(n),r=Yt(e,t),i=j(n,e);if(r.axisX?i.x===r.v:i.y===r.v)return[];Yn.fill(-1,0,t*t),ge.fill(-1,0,t*t);let s=i.y*t+i.x;Yn[s]=0;let a=0,l=0;Ve[l++]=s;let u=-1;for(;a<l;){let m=Ve[a++],b=m%t,P=(m-b)/t;if(r.axisX?b===r.
+v:P===r.v){u=m;break}for(let p=0;p<4;p++){let f=p===3?1:p===2?-1:0,h=p===1?1:p===0?-1:0,d=b+f,x=P+h;if(d<0||d>t-1||x<0||x>t-1)continue;let A=x*t+d;Yn[A]>=0||H(o,b,P,f,h)||(Yn[A]=Yn[m]+1,ge[A]=m,Ve[l++]=A)}}if(u<0)return[];let y=[],c=u;for(;ge[c]!==-1;){let m=ge[c],b=m%t,P=(m-b)/t,p=c%t,f=(c-p)/t;y.unshift([{x:b,y:P},{x:p,y:f}]),c=m}return y}function vo(n,e){let o=new Set,t=[],r=(i,s,a)=>{if(i<0||i>
+e-2||s<0||s>e-2)return;let l=`${i},${s},${a}`;o.has(l)||(o.add(l),t.push({x:i,y:s,o:a}))};for(let[i,s]of n)s.y===i.y-1?(r(i.x,s.y,"h"),r(i.x-1,s.y,"h")):s.y===i.y+1?(r(i.x,i.y,"h"),r(i.x-1,i.y,"h")):s.x===i.x+1?(r(i.x,i.y,"v"),r(i.x,i.y-1,"v")):s.x===i.x-1&&(r(s.x,i.y,"v"),r(s.x,i.y-1,"v"));return t}function Qe(n,e,o,t,r,i){let s=i-1,a=e.y*s+e.x,l=e.o==="h"?n.h:n.v;if(l[a])return null;l[a]=1;let u=new Map,
+y=!0;for(let c of t){let m=q(n,j(o,c),c,i);if(m<0){y=!1;break}u.set(c,m-(r.get(c)??0))}return l[a]=0,y?{gains:u,legal:y}:null}function So(n,e,o){let t=F(n),r=an(n,e),i=j(n,e);if(r.length===0)return null;let s=on(n.walls,t),a=1/0;for(let y of r){let c=q(s,y,e,t);c>=0&&c<a&&(a=c)}let l=r.filter(y=>q(s,y,e,t)===a);l.length===0&&(l=r);{let y=[...n.history].reverse().find(c=>c.player===e&&c.payload.type===
+"pawn");if(y&&y.payload.type==="pawn"){let c=y.payload.from,m=l.filter(b=>!(b.x===c.x&&b.y===c.y));m.length>0&&(l=m)}}let u=l[0];return{payload:{type:"pawn",from:{x:i.x,y:i.y},to:{x:u.x,y:u.y}},label:qt[o]}}function Co(n,e,o,t,r){let i=q(n,e,o,t),s={to:e,d:i};for(let a=0;a<4;a++){let l=a===3?1:a===2?-1:0,u=a===1?1:a===0?-1:0,y=e.x+l,c=e.y+u;if(y<0||y>t-1||c<0||c>t-1||H(n,e.x,e.y,l,u))continue;let m=c*
+t+y;if(r.has(m))continue;let b=q(n,{x:y,y:c},o,t);b>=0&&b<s.d&&(s={to:{x:y,y:c},d:b})}return s}function Lo(n,e,o,t,r){let i=t-1,s=on(n.walls,t),a=r?Uint8Array.from(s.h):s.h,l=r?Uint8Array.from(s.v):s.v;if(r){let f=r.y*i+r.x;(r.o==="h"?a:l)[f]=1}let u={h:a,v:l},y=new Map;for(let f of o)y.set(f,{...j(n,f)});let c=new Set;for(let f of o)c.add(j(n,f).y*t+j(n,f).x);for(let f of o){if(f===e)continue;let h=y.
+get(f),d=Co(u,h,f,t,c);c.delete(h.y*t+h.x),c.add(d.to.y*t+d.to.x),y.set(f,d.to)}let m=y.get(e),b=Co(u,m,e,t,c);y.set(e,b.to);let P=q(u,b.to,e,t),p=1/0;for(let f of o){if(f===e)continue;let d=q(u,y.get(f),f,t)-P;d<p&&(p=d)}return p===1/0?0:p}function Wo(n,e,o){let t=F(n);if(ln(n,e)<=0)return null;for(let r=0;r<=t-2;r++)for(let i=0;i<=t-2;i++)for(let s of["h","v"])if(kn(n,r,i,s,e).ok)return{payload:{
+type:"wall",wall:{x:r,y:i,o:s,by:e}},label:Zn[o]};return null}function Io(n,e,o){if(n.winner)return null;let t=n.turn;if(n.playerCount!==4||Pe(n,t))return null;let r=F(n),i=an(n,t).find(d=>Bn(t,d.x,d.y,r));if(i){let d=j(n,t);return{payload:{type:"pawn",from:{x:d.x,y:d.y},to:{x:i.x,y:i.y}},label:Kt[e]}}let s=Dn(n),a=s.filter(d=>d!==t);if(a.length===0)return null;let l=on(n.walls,r),u=new Map;for(let d of s)
+u.set(d,q(l,j(n,d),d,r));let y=u.get(t)??1/0,c=a.map(d=>({p:d,d:u.get(d)??1/0,walls:ln(n,d)})).sort((d,x)=>d.d-x.d),m=c[0],b=c[1],P=ln(n,t),p=c.some(d=>d.walls>0),f=e>=4?1:0,h=y<m.d-f||y<=m.d&&!p;if(e===1){if(P>0&&!h){let d=m.d<=3||m.d<=y-2;if(d||Math.random()<.25){let x=d?1:2,A=Mo(n,m.p,l),v=vo(A,r).filter(L=>!Kn(n.walls,L.x,L.y,L.o)&&Qe(l,L,n,s,u,r)!==null),S=m.d<=2?2:m.d<=3?1:0,w=[],M=x;for(let L of v){
+let g=Qe(l,L,n,s,u,r);if(!g)continue;let C=g.gains.get(m.p)??0,_=g.gains.get(t)??0;C<M||_>S||(C>M&&(M=C,w.length=0),w.push(L))}if(w.length>0){let L=w[Math.floor(Math.random()*w.length)];return{payload:{type:"wall",wall:{x:L.x,y:L.y,o:L.o,by:t}},label:Zn[e]}}}}return So(n,t,e)??Wo(n,t,e)}if(P>0&&!h){let d=e>=4?48:e===3?36:22,x=[],A=new Set,v=(C,_)=>{let I=Mo(n,C,l),D=vo(I,r);for(let k of D){if(x.length>=
+d)break;let W=`${k.x},${k.y},${k.o}`;if(!A.has(W)&&!Kn(n.walls,k.x,k.y,k.o)&&(A.add(W),x.push(k),x.length>=_))break}};v(m.p,d),e>=2&&b&&b.d<=m.d+2&&v(b.p,d+(e>=3?12:8));let S=m.d<=2?2:m.d<=3?1:0,w=[];for(let C of x){let _=Qe(l,C,n,s,u,r);if(!_)continue;let I=_.gains.get(m.p)??0,D=0;for(let O of c)O.p!==m.p&&(D+=_.gains.get(O.p)??0);let k=_.gains.get(t)??0;if(k>S)continue;let W=2*I+D-3*Math.max(0,k);
+if(e>=2){let O=(u.get(m.p)??0)+I-1,B=y+k-1,N=O-B;W+=N>0?4:N<0?-2:0,e>=4&&b&&b.d<=m.d+2&&(W+=Math.max(0,_.gains.get(b.p)??0))}m.d<=2&&(W+=3),W+=Math.random()*.3,w.push({c:C,score:W,gainLeader:I})}w.sort((C,_)=>_.score-C.score);let M=m.d<=2?1:2,L=e===2?3:2,g=w.filter(C=>C.score>=L&&C.gainLeader>=M);if(e>=3&&g.length>0)if(y<=m.d){let C=e>=4?5:3,I=Lo(n,t,s,r,null)+.5,D=null,k=I;for(let W=0;W<Math.min(
+C,g.length);W++){let O=Lo(n,t,s,r,g[W].c);O>k&&(D=g[W].c,k=O)}if(D)return{payload:{type:"wall",wall:{x:D.x,y:D.y,o:D.o,by:t}},label:Zn[e]}}else{let C=g[0].c;return{payload:{type:"wall",wall:{x:C.x,y:C.y,o:C.o,by:t}},label:Zn[e]}}else if(g.length>0){let C=g[0].c;return{payload:{type:"wall",wall:{x:C.x,y:C.y,o:C.o,by:t}},label:Zn[e]}}}return So(n,t,e)??Wo(n,t,e)}var Vo={1:"学徒随手排了一根铅条",2:"排字师延长了领先者的归途",3:"总编落下一道围桌版式",4:"社长批下一道终审版式"},Qo={1:"学徒循最短路径捡字",2:"排字师沿最短路赶稿",3:"总编审定了去路",4:"社长亲自排定了去路"},Zt={1:"学徒摸到了终点",2:"排字师一步定版",3:"总编拍板收官",4:"社长落锤定音"},Ye={A:0,B:1,C:2,
+D:3},Ze=["A","B","C","D"],Je=[2,3,1,0],U=169,te=144,Me=21,Se=288,Jt=1048576,Ce=26,K=1e5,un=1e-6,Sn=typeof process<"u"?process.env:{},Xe=Sn.QUORIDOR_AI4_DEPTH?Number(Sn.QUORIDOR_AI4_DEPTH):null,nr=!!Sn.QUORIDOR_AI4_NOWALL,_o=Sn.QUORIDOR_AI4_ONLYGAIN?Number(Sn.QUORIDOR_AI4_ONLYGAIN):null,er=!!Sn.QUORIDOR_AI4_CHOKE,or=!er;function tr(n,e){let o=e<=5?.55:e===7?.8:e===9?1:e===11?1.2:1.5;return n===2?{budgetMs:Math.
+round(800*o),maxDepth:Xe??5,rootWall:14,innerWall:10,coalWall:8,pawnLmr:!1}:n===3?{budgetMs:Math.round(3800*o),maxDepth:Xe??8,rootWall:18,innerWall:12,coalWall:10,pawnLmr:!1}:{budgetMs:Math.round(7600*o),maxDepth:Xe??11,rootWall:22,innerWall:14,coalWall:12,pawnLmr:!1}}function rr(n){let e=n>>>0;return()=>(e^=e<<13,e>>>=0,e^=e>>>17,e^=e<<5,e>>>=0,e)}var Z=rr(2654435769),Cn=[],Ln=[],mn=new Int32Array(
+te),bn=new Int32Array(te),pn=new Int32Array(te),An=new Int32Array(te),Wn=[],In=[],tn=new Int32Array(4),rn=new Int32Array(4),no=new Int32Array(16),eo=new Int32Array(16),ee=new Int32Array(16),oe=new Int32Array(16);(function(){for(let e=0;e<4;e++){let o=new Int32Array(U),t=new Int32Array(U);for(let s=0;s<U;s++)o[s]=Z(),t[s]=Z();Cn.push(o),Ln.push(t);let r=new Int32Array(Me+2),i=new Int32Array(Me+2);for(let s=0;s<=
+Me+1;s++)r[s]=Z(),i[s]=Z();Wn.push(r),In.push(i)}for(let e=0;e<te;e++)mn[e]=Z(),bn[e]=Z(),pn[e]=Z(),An[e]=Z();for(let e=0;e<4;e++)tn[e]=Z(),rn[e]=Z();for(let e=0;e<16;e++)no[e]=Z(),eo[e]=Z();for(let e=0;e<16;e++)ee[e]=Z(),oe[e]=Z()})();var Xo=!!Sn.QUORIDOR_AI4_HASH_DEBUG;function sr(n){let e=n.size,o=e-1,t=ee[e],r=oe[e],i=ee[e],s=oe[e];for(let a=0;a<4;a++){let l=n.py[a]*e+n.px[a];t^=Cn[a][l],r^=Ln[a][l];
+let u=n.walls[a];t^=Wn[a][u],r^=In[a][u]}for(let a=0;a<o*o;a++)n.h[a]&&(t^=mn[a],r^=bn[a],i^=mn[a],s^=bn[a]),n.v[a]&&(t^=pn[a],r^=An[a],i^=pn[a],s^=An[a]);return t^=no[n.elim],r^=eo[n.elim],t^=tn[n.turn],r^=rn[n.turn],{lo:t|0,hi:r|0,gLo:i|0,gHi:s|0}}function ir(n,e){if(!Xo)return;let o=sr(n);if(o.lo!==n.hashLo||o.hi!==n.hashHi||o.gLo!==n.gLo||o.gHi!==n.gHi)throw console.error(`[ai4] HASH MISMATCH \
+at ${e}: stored (${n.hashLo},${n.hashHi},${n.gLo},${n.gHi}) actual (${o.lo},${o.hi},${o.gLo},${o.gHi})`),new Error("ai4 hash mismatch")}function lr(n){let e=F(n),o=on(n.walls,e),t=e-1,r=ee[e],i=oe[e],s=ee[e],a=oe[e],l=new Int32Array(4),u=new Int32Array(4),y=new Int32Array(4);for(let b=0;b<4;b++){let P=j(n,Ze[b]);l[b]=P.x,u[b]=P.y;let p=P.y*e+P.x;r^=Cn[b][p],i^=Ln[b][p];let f=Math.min(Math.max(ln(n,
+Ze[b]),0),Me);y[b]=f,r^=Wn[b][f],i^=In[b][f]}for(let b=0;b<t*t;b++)o.h[b]&&(r^=mn[b],i^=bn[b],s^=mn[b],a^=bn[b]),o.v[b]&&(r^=pn[b],i^=An[b],s^=pn[b],a^=An[b]);let c=0;for(let b of n.eliminated??[])c|=1<<Ye[b];r^=no[c],i^=eo[c];let m=Ye[n.turn];return r^=tn[m],i^=rn[m],{size:e,h:o.h,v:o.v,px:l,py:u,walls:y,elim:c,turn:m,hashLo:r|0,hashHi:i|0,gLo:s|0,gHi:a|0}}var ar=14,re=1<<ar,ur=re-1,Oo=new Int32Array(
+re),Bo=new Int32Array(re),Do=new Uint8Array(re),je=new Array(re).fill(null),fr=0,cr=0,xe=new Int32Array(U);function yr(n,e,o){let t=n.size,r=o*U,i={h:n.h,v:n.v},s=0,a=0;if(o===0||o===1){let l=o===0?0:t-1;for(let u=0;u<t;u++)e[r+l*t+u]=0,xe[a++]=l*t+u}else{let l=o===2?t-1:0;for(let u=0;u<t;u++)e[r+u*t+l]=0,xe[a++]=u*t+l}for(;s<a;){let l=xe[s++],u=l%t,y=(l-u)/t,c=e[r+l];for(let m=0;m<4;m++){let b=m===
+2?-1:m===3?1:0,P=m===0?-1:m===1?1:0,p=u+b,f=y+P;if(p<0||p>t-1||f<0||f>t-1||Y(i,u,y,b,P))continue;let h=r+f*t+p;e[h]===-1&&(e[h]=c+1,xe[a++]=f*t+p)}}}function zn(n){let e=n.gLo>>>0&ur;if(Do[e]&&Oo[e]===n.gLo&&Bo[e]===n.gHi)return fr++,je[e];cr++;let o=je[e];o||(o=new Int16Array(U*4),je[e]=o),o.fill(-1,0,U*4);let t=n.size,r=t*t;for(let i=0;i<4;i++)o.fill(-1,i*U,i*U+r);for(let i=0;i<4;i++)yr(n,o,i);return Do[e]=
+1,Oo[e]=n.gLo,Bo[e]=n.gHi,o}function Y(n,e,o,t,r){let i=n.h.length?Math.round(Math.sqrt(n.h.length)):8,s=i-1;return r===-1?!!(e<=s&&n.h[(o-1)*i+e]||e>0&&n.h[(o-1)*i+e-1]):r===1?!!(e<=s&&n.h[o*i+e]||e>0&&n.h[o*i+e-1]):t===1?!!(o<=s&&n.v[o*i+e]||o>0&&n.v[(o-1)*i+e]):t===-1?!!(o<=s&&n.v[o*i+e-1]||o>0&&n.v[(o-1)*i+e-1]):!1}function J(n,e,o,t,r){return n[e*U+t*r+o]}var En=new Int32Array(4);function dr(n,e,o,t){
+let r=n.size-1,i=o*r+e,s=t==="h"?n.h:n.v,a=s[i],l=t==="h"?mn[i]:pn[i],u=t==="h"?bn[i]:An[i];s[i]=1,n.gLo=n.gLo^l|0,n.gHi=n.gHi^u|0;let y=zn(n),c=n.size,m=!0;for(let b=0;b<4;b++){let P=y[b*U+n.py[b]*c+n.px[b]];En[b]=P,P<0&&!(n.elim&1<<b)&&(m=!1)}return s[i]=a,n.gLo=n.gLo^l|0,n.gHi=n.gHi^u|0,m}function jo(n,e){let o=Je[e];for(let t=0;t<4;t++){if(!(n.elim&1<<o))return o;o=Je[o]}return e}function $o(n,e,o,t){
+let r=n.size,i=n.py[e]*r+n.px[e],s=t*r+o,a=jo(n,e);n.hashLo=n.hashLo^Cn[e][i]^Cn[e][s]^tn[n.turn]^tn[a]|0,n.hashHi=n.hashHi^Ln[e][i]^Ln[e][s]^rn[n.turn]^rn[a]|0,n.px[e]=o,n.py[e]=t,n.turn=a}function Nn(n,e,o,t,r){let i=n.size,s=t*i+o,a=n.py[e]*i+n.px[e];n.hashLo=n.hashLo^Cn[e][s]^Cn[e][a]^tn[n.turn]^tn[r]|0,n.hashHi=n.hashHi^Ln[e][s]^Ln[e][a]^rn[n.turn]^rn[r]|0,n.px[e]=o,n.py[e]=t,n.turn=r}function qo(n,e,o,t,r){
+let i=n.size-1,s=t*i+o,a=r==="h"?mn[s]:pn[s],l=r==="h"?bn[s]:An[s],u=jo(n,e),y=n.walls[e];n.hashLo=n.hashLo^a^tn[n.turn]^tn[u]^Wn[e][y]^Wn[e][y-1]|0,n.hashHi=n.hashHi^l^rn[n.turn]^rn[u]^In[e][y]^In[e][y-1]|0,n.gLo=n.gLo^a|0,n.gHi=n.gHi^l|0,r==="h"?n.h[s]=1:n.v[s]=1,n.walls[e]=y-1,n.turn=u}function Tn(n,e,o,t,r,i){let s=n.size-1,a=t*s+o,l=r==="h"?mn[a]:pn[a],u=r==="h"?bn[a]:An[a],y=n.walls[e];n.hashLo=
+n.hashLo^l^tn[n.turn]^tn[i]^Wn[e][y+1]^Wn[e][y]|0,n.hashHi=n.hashHi^u^rn[n.turn]^rn[i]^In[e][y+1]^In[e][y]|0,n.gLo=n.gLo^l|0,n.gHi=n.gHi^u|0,r==="h"?n.h[a]=0:n.v[a]=0,n.walls[e]=y+1,n.turn=i}var Rn=[];function Ko(n,e){let o=n.size,t=n.px[e],r=n.py[e],i={h:n.h,v:n.v};Rn.length=0;for(let s=0;s<4;s++){let a=s===2?-1:s===3?1:0,l=s===0?-1:s===1?1:0,u=t+a,y=r+l;if(u<0||u>o-1||y<0||y>o-1||Y(i,t,r,a,l))continue;
+let c=-1;for(let f=0;f<4;f++)if(f!==e&&n.px[f]===u&&n.py[f]===y){c=f;break}if(c<0){Rn.push({x:u,y});continue}let m=t+2*a,b=r+2*l,p=m>=0&&m<=o-1&&b>=0&&b<=o-1&&!Y(i,u,y,a,l);if(p){for(let f=0;f<4;f++)if(f!==e&&n.px[f]===m&&n.py[f]===b){p=!1;break}}if(p){Rn.push({x:m,y:b});continue}if(a!==0)for(let f of[-1,1]){let h=u,d=y+f;if(h<0||h>o-1||d<0||d>o-1||Y(i,u,y,0,f))continue;let x=!1;for(let A=0;A<4;A++)
+if(A!==e&&n.px[A]===h&&n.py[A]===d){x=!0;break}x||Rn.push({x:h,y:d})}else for(let f of[-1,1]){let h=u+f,d=y;if(h<0||h>o-1||d<0||d>o-1||Y(i,u,y,f,0))continue;let x=!1;for(let A=0;A<4;A++)if(A!==e&&n.px[A]===h&&n.py[A]===d){x=!0;break}x||Rn.push({x:h,y:d})}}return Rn}function hr(n,e){let o=n.size,t=n.px[e],r=n.py[e];return e===0?r===0:e===1?r===o-1:e===2?t===o-1:t===0}function mr(n,e){let o=n.size,t=n.
+px[e],r=n.py[e],i={h:n.h,v:n.v},s=0;for(let a=0;a<4;a++){let l=a===2?-1:a===3?1:0,u=a===0?-1:a===1?1:0,y=t+l,c=r+u;if(y<0||y>o-1||c<0||c>o-1||Y(i,t,r,l,u))continue;let m=-1;for(let h=0;h<4;h++)if(h!==e&&n.px[h]===y&&n.py[h]===c){m=h;break}if(m<0){s++;continue}let b=t+2*l,P=r+2*u,f=b>=0&&b<=o-1&&P>=0&&P<=o-1&&!Y(i,y,c,l,u);if(f){for(let h=0;h<4;h++)if(h!==e&&n.px[h]===b&&n.py[h]===P){f=!1;break}}if(f){
+s++;continue}if(l!==0)for(let h of[-1,1]){let d=c+h;if(d<0||d>o-1||Y(i,y,c,0,h))continue;let x=!1;for(let A=0;A<4;A++)if(A!==e&&n.px[A]===y&&n.py[A]===d){x=!0;break}x||s++}else for(let h of[-1,1]){let d=y+h;if(d<0||d>o-1||Y(i,y,c,h,0))continue;let x=!1;for(let A=0;A<4;A++)if(A!==e&&n.px[A]===d&&n.py[A]===c){x=!0;break}x||s++}}return s}function br(n,e){let o=n.size;for(let t of Ko(n,e))if(Bn(Ze[e],
+t.x,t.y,o))return!0;return!1}var ne=new Uint8Array(U);function ko(n,e,o){let t=n.size,r=o*U,i=n.py[o]*t+n.px[o],s=e[r+i];if(s<=0)return!1;ne.fill(0,0,t*t),ne[i]=1;let a={h:n.h,v:n.v},l=0;for(;s>0&&l++<200;){let u=i%t,y=(i-u)/t,c=-1;for(let m=0;m<4;m++){let b=m===2?-1:m===3?1:0,P=m===0?-1:m===1?1:0,p=u+b,f=y+P;if(!(p<0||p>t-1||f<0||f>t-1)&&!Y(a,u,y,b,P)&&e[r+f*t+p]===s-1){c=f*t+p;break}}if(c<0)return!1;
+ne[c]=1,i=c,s--}return!0}function Ro(n,e,o){let t=n.size,r=o*U,i=n.px[o],s=n.py[o],a=e[r+s*t+i];if(a<=0)return 0;let l={h:n.h,v:n.v},u=0;for(let y=0;y<4;y++){let c=y===2?-1:y===3?1:0,m=y===0?-1:y===1?1:0,b=i+c,P=s+m;b<0||b>t-1||P<0||P>t-1||Y(l,i,s,c,m)||e[r+P*t+b]===a-1&&u++}return u}function Eo(n,e,o){let t=n.size,r=o*U,i={h:n.h,v:n.v},s=n.px[o],a=n.py[o],l=e[r+a*t+s];for(let u=0;u<8&&l>0;u++){let y=0,
+c=0,m=0,b=!1;for(let f=0;f<4;f++){let h=f===2?-1:f===3?1:0,d=f===0?-1:f===1?1:0,x=s+h,A=a+d;x<0||x>t-1||A<0||A>t-1||Y(i,s,a,h,d)||e[r+A*t+x]===l-1&&(y++,b||(b=!0,c=h,m=d))}if(!b)return 0;if(y===1)if(m!==0){let f=m===-1?a-1:a;if(!(Jn(n,s,f,"h")&&Jn(n,s-1,f,"h")))return 1}else{let f=c===1?s:s-1;if(!(Jn(n,f,a,"v")&&Jn(n,f,a-1,"v")))return 1}let P=-1,p=-1;for(let f=0;f<4;f++){let h=f===2?-1:f===3?1:0,
+d=f===0?-1:f===1?1:0,x=s+h,A=a+d;if(!(x<0||x>t-1||A<0||A>t-1)&&!Y(i,s,a,h,d)&&e[r+A*t+x]===l-1){P=x,p=A;break}}if(P<0)return 0;s=P,a=p,l--}return 0}function No(n,e,o){let t=o.wallSeat.length>0?o.wallSeat[o.wallSeat.length-1]:-1,r=K-e;return t===n?-r:r}function To(n,e,o,t){let r=zn(n),i=n.size,s=r[e*U+n.py[e]*i+n.px[e]];if(s===0)return K-o;if(s<0)return No(e,o,t);let a=[1/0,1/0,1/0],l=[-1,-1,-1],u=0,
+y=0;for(let p=0;p<4;p++){if(p===e||n.elim&1<<p)continue;let f=r[p*U+n.py[p]*i+n.px[p]];if(f<0)return No(e,o,t);if(f===0)return-(K-o);u+=n.walls[p];let h=y;for(;h>0&&a[h-1]>f;)a[h]=a[h-1],l[h]=l[h-1],h--;a[h]=f,l[h]=p,y++}if(y===0)return K-o;let c=a[0]-s;y>=2&&(c+=.4*(a[1]-s)),y>=3&&(c+=.2*(a[2]-s));let m=n.walls[e];if(c+=.3*Math.min(m,2)+.1*Math.max(0,m-2)-.05*u,c+=.1*(Math.min(Ro(n,r,e),3)-Math.min(
+Ro(n,r,l[0]),3)),!or){let p=Eo(n,r,e),f=Eo(n,r,l[0]);c+=.22*(f-p)}let b=mr(n,e);b<=3&&(c-=(4-b)*.4);let P=a[0]-s;if(P>=-1&&P<=1){let p=n.turn,f=!1,h=!1;for(let d=0;d<4&&!f&&!h;d++)p===e?f=!0:p===l[0]&&(h=!0),p=Je[p];c+=f?.25:h?-.25:0}return c}var Yo=0,Zo=1,Jo=2,zo=new Map,pr=15e4,ve=class extends Error{},Ar=new ve;function wr(n,e,o,t,r,i,s,a){if(!Number.isFinite(r)||Math.abs(r)>K/2)return;n.tt.size>
+pr&&n.tt.clear();let l=r<=i?Jo:r>=s?Zo:Yo;n.tt.set(e,{hi:o>>>0,depth:t,score:r,flag:l,best:a})}function Ho(n,e,o,t){if(o>=Se||e>=Ce)return;n.history[o]+=t*t,n.history[o]>1e6&&(n.history[o]=1e6);let r=n.killers[e*2];r!==o&&(n.killers[e*2+1]=r,n.killers[e*2]=o)}function Pr(n,e,o,t){return(e*(t-1)+n)*2+(o==="h"?0:1)}function gr(n,e,o,t){let r=n.size,i=o*U,s={h:n.h,v:n.v};for(let a=0;a<r*r;a++){if(!ne[a])
+continue;let l=a%r,u=(a-l)/r,y=e[i+a];for(let c=0;c<4;c++){let m=c===2?-1:c===3?1:0,b=c===0?-1:c===1?1:0,P=l+m,p=u+b;if(!(P<0||P>r-1||p<0||p>r-1)&&e[i+p*r+P]===y-1&&!Y(s,l,u,m,b))if(b!==0){let f=b===-1?u-1:u;t.push(l,f,1),t.push(l-1,f,1)}else{let f=m===1?l:l-1;t.push(f,u,0),t.push(f,u-1,0)}}}}function Jn(n,e,o,t){let r=n.size-1,i=r-1;if(e<0||o<0||e>i||o>i)return!0;if(t==="h"){if(n.h[o*r+e]||e>0&&n.
+h[o*r+e-1]||e<i&&n.h[o*r+e+1]||n.v[o*r+e])return!0}else if(n.v[o*r+e]||o>0&&n.v[(o-1)*r+e]||o<i&&n.v[(o+1)*r+e]||n.h[o*r+e])return!0;return!1}function xr(n,e,o,t){let r=n.size,i=o*U,s={h:n.h,v:n.v};for(let a=0;a<r*r;a++){if(!ne[a])continue;let l=a%r,u=(a-l)/r,y=e[i+a];for(let c=0;c<4;c++){let m=c===2?-1:c===3?1:0,b=c===0?-1:c===1?1:0,P=l+m,p=u+b;if(!(P<0||P>r-1||p<0||p>r-1)&&e[i+p*r+P]===y-1&&!Y(s,
+l,u,m,b))if(b!==0){let f=b===-1?u-1:u;t.push(l,f,0),t.push(l-1,f,0)}else{let f=m===1?l:l-1;t.push(f,u,1),t.push(f,u-1,1)}}}}var $e=new Uint16Array(Se),qe=0,Mr=[];function nt(n,e,o,t,r,i,s){let a=n.size,l=zn(n),u=[];++qe>=65535&&($e.fill(0),qe=1);let y=qe,c=J(l,e,n.px[e],n.py[e],a);for(let W of Ko(n,e)){let O=J(l,e,W.x,W.y,a),B=c-O,N=Math.abs(W.x-n.px[e])+Math.abs(W.y-n.py[e])>=2?1:0;u.push({code:Jt+
+W.y*a+W.x,isWall:!1,x:W.x,y:W.y,o:"h",score:B*12+N*8,gain:0})}if(n.walls[e]<=0)return u.sort((W,O)=>O.score-W.score);let m=t.params,b=e===o,P=-1,p=1/0,f=-1,h=1/0,d=-1,x=1/0,A=!1,v=0,S=!1;if(b){for(let W=0;W<4;W++){if(W===o||n.elim&1<<W)continue;let O=J(l,W,n.px[W],n.py[W],a);O<0||(O<p?(h=p,f=P,p=O,P=W):O<h&&(h=O,f=W))}if(d=P,P>=0){let W=J(l,e,n.px[e],n.py[e],a);S=p<=3||W>=p+2,A=p<=2,v=S?p<=2?2:1:0,
+x=_o??(S?1:2),nr&&(x=1/0)}}else{let W=-1,O=1/0;for(let B=0;B<4;B++){if(B===e||n.elim&1<<B)continue;let N=J(l,B,n.px[B],n.py[B],a);N>=0&&N<O&&(O=N,W=B)}d=W>=0?W:o}if(d<0)return u.sort((W,O)=>O.score-W.score);let w=!1;for(let W=t.wallSeat.length-1;W>=0;W--)if(t.wallSeat[W]===e&&t.wallPly[W]>r-8){w=!0;break}let M;if(b)M=s?m.rootWall:Math.max(6,m.innerWall-Math.max(0,i-3));else{let W=J(l,o,n.px[o],n.py[o],
+a),O=W>=12?0:W>=8?Math.ceil(m.coalWall/2):m.coalWall;M=Math.max(0,Math.min(O,m.coalWall-Math.max(0,i-3)))}let L=Mr;L.length=0;let g=W=>{W<0||ko(n,l,W)&&xr(n,l,W,L)},C=1/0;if(b){g(P),f>=0&&h<=p+2&&g(f),C=L.length/3;let W=n.px[e],O=n.py[e];for(let B=-1;B<=1;B++)L.push(W+B,O-2,0),L.push(W+B,O+2,0);for(let B=-1;B<=1;B++)L.push(W-2,O+B,1),L.push(W+2,O+B,1);ko(n,l,e)&&gr(n,l,e,L)}else g(d);let _=J(l,o,n.
+px[o],n.py[o],a),I=[];for(let W=0;W+2<L.length&&!(I.length>=M);W+=3){let O=L[W],B=L[W+1],N=L[W+2]===0?"h":"v";if(O<0||B<0||O>a-2||B>a-2)continue;let G=Pr(O,B,N,a);if($e[G]===y||Jn(n,O,B,N)||!dr(n,O,B,N))continue;$e[G]=y;let sn=En[o],Mn=W/3>=C,en,Po=0;if(b){let vn=P>=0?En[P]-p:0,be=f>=0&&h<1/0?En[f]-h:0,pe=sn-_;if(vn<x||pe>v||!S&&w)continue;Po=vn,en=6*vn+2*be-6*pe+(Mn?3:0),p<=2&&(en+=3)}else{let vn=d===
+o?_:J(l,d,n.px[d],n.py[d],a),be=En[d]-vn,pe=J(l,e,n.px[e],n.py[e],a);if(En[e]-pe>be&&vn>3)continue;en=6*be,vn<=3&&(en+=3)}r<Ce&&(t.killers[r*2]===G||t.killers[r*2+1]===G)&&(en+=55),G<Se&&(en+=Math.min(40,t.history[G]/8)),I.push({code:G,isWall:!0,x:O,y:B,o:N,score:en,gain:Po})}I.sort((W,O)=>O.score-W.score);let k=[...I.slice(0,M),...u.filter(W=>!W.isWall)];return k.sort((W,O)=>O.score-W.score),k}function Q(n,e,o,t,r,i,s,a){
+if(s.nodes++,(s.nodes&127)===0&&Date.now()>s.deadline)throw Ar;if(Xo&&ir(n,`node ply=${e}`),a>=0&&hr(n,a))return a===i?K-e:-(K-e);let l=n.turn;if(br(n,l))return l===i?K-e:-(K-e);let u=t,y=r,c=n.hashLo>>>0,m=-1,b=s.tt.get(c);if(b&&b.hi===n.hashHi>>>0&&(m=b.best,b.depth>=o&&(b.flag===Yo||b.flag===Zo&&b.score>=r||b.flag===Jo&&b.score<=t)))return b.score;if(o<=0)return To(n,i,e,s);let P=nt(n,l,i,s,e,o,
+!1);if(P.length===0)return To(n,i,e,s);if(m>=0){let A=P.findIndex(v=>v.code===m);if(A>0){let v=P[A];P.splice(A,1),P.unshift(v)}}let p=l===i,f=p?-1/0:1/0,h=-1,d=!0,x=0;for(let A of P){let v=x++,S;if(A.isWall){let w=e<Ce&&(s.killers[e*2]===A.code||s.killers[e*2+1]===A.code),M=!d&&v>=8&&o>=4&&A.code!==m&&!w?1:0,L=n.turn;if(s.wallPly.push(e),s.wallSeat.push(l),qo(n,l,A.x,A.y,A.o),d)S=Q(n,e+1,o-1,t,r,i,
+s,l),d=!1;else if(r-t>un*8)if(p){let g=Q(n,e+1,o-1-M,t,t+un,i,s,l);if(g<=t){Tn(n,l,A.x,A.y,A.o,L),s.wallSeat.pop(),s.wallPly.pop();continue}if(M>0){let C=Q(n,e+1,o-1,t,t+un,i,s,l);if(C<=t){Tn(n,l,A.x,A.y,A.o,L),s.wallSeat.pop(),s.wallPly.pop();continue}S=C}else S=g;S<r&&(S=Q(n,e+1,o-1,t,r,i,s,l))}else{let g=Q(n,e+1,o-1-M,r-un,r,i,s,l);if(g>=r){Tn(n,l,A.x,A.y,A.o,L),s.wallSeat.pop(),s.wallPly.pop();
+continue}if(M>0){let C=Q(n,e+1,o-1,r-un,r,i,s,l);if(C>=r){Tn(n,l,A.x,A.y,A.o,L),s.wallSeat.pop(),s.wallPly.pop();continue}S=C}else S=g;S>t&&(S=Q(n,e+1,o-1,t,r,i,s,l))}else S=Q(n,e+1,o-1-M,t,r,i,s,l);Tn(n,l,A.x,A.y,A.o,L),s.wallSeat.pop(),s.wallPly.pop()}else{let w=n.px[l],M=n.py[l],L=n.turn,g=Math.abs(A.x-w)+Math.abs(A.y-M)>=2,C=0;if(s.params.pawnLmr&&!d&&v>=6&&o>=4&&!g&&A.code!==m){let _=zn(n);J(
+_,l,w,M,n.size)>2&&(C=1)}if($o(n,l,A.x,A.y),d)S=Q(n,e+1,o-1,t,r,i,s,l),d=!1;else if(r-t>un*8)if(p){let _=Q(n,e+1,o-1-C,t,t+un,i,s,l);if(_<=t){Nn(n,l,w,M,L);continue}if(C>0){let I=Q(n,e+1,o-1,t,t+un,i,s,l);if(I<=t){Nn(n,l,w,M,L);continue}S=I}else S=_;S<r&&(S=Q(n,e+1,o-1,t,r,i,s,l))}else{let _=Q(n,e+1,o-1-C,r-un,r,i,s,l);if(_>=r){Nn(n,l,w,M,L);continue}if(C>0){let I=Q(n,e+1,o-1,r-un,r,i,s,l);if(I>=r){
+Nn(n,l,w,M,L);continue}S=I}else S=_;S>t&&(S=Q(n,e+1,o-1,t,r,i,s,l))}else S=Q(n,e+1,o-1,t,r,i,s,l);Nn(n,l,w,M,L)}if(p){if(S>f&&(f=S,h=A.code),f>t&&(t=f),t>=r){A.isWall&&Ho(s,e,A.code,o);break}}else if(S<f&&(f=S,h=A.code),f<r&&(r=f),t>=r){A.isWall&&Ho(s,e,A.code,o);break}}return wr(s,c,n.hashHi,o,f,u,y,h),f}function Fo(n,e,o,t){return n===0?o:n===1?t-1-o:n===2?t-1-e:e}var vr=.8;function Go(n){return n<=
+1?.35:n===2?.8:n===3?1.5:2.5}function Sr(n,e){let o=n.size,t=new Map,r=[];for(let f=n.history.length-1;f>=0&&r.length<12;f--){let h=n.history[f];h.player===e&&h.payload.type==="pawn"&&r.unshift(h.payload)}if(r.length===0)return t;let i=!1;for(let f=n.history.length-1;f>=0;f--){let h=n.history[f];if(h.player===e){i=h.payload.type==="pawn";break}}let s=r.length,a=Math.max(0,s-11),l=new Map;for(let f=a;f<
+s-1;f++){let h=r[f].to.y*o+r[f].to.x;l.set(h,(l.get(h)??0)+1)}let u=0;for(let f=s-1;f>=Math.max(1,a+1);f--){let h=r[f],d=r[f-1];if(h.to.x===d.from.x&&h.to.y===d.from.y)u++;else break}let y=Math.pow(2,Math.min(u,2)),c=f=>Math.min(f,3),m=r[s-1],b=m.from.y*o+m.from.x,P=l.get(b)??0,p=i?vr:.35;t.set(b,c((p+Go(P))*y));for(let[f,h]of l){if(f===b)continue;let d=c(Go(h)*y);d>0&&t.set(f,d)}return t}function Cr(n,e){
+let o=Ye[n.turn],t=lr(n),r=Sr(n,n.turn),i=Dn(n).every(p=>ln(n,p)===0),s={tt:zo,killers:new Int32Array(Ce*2),history:new Float64Array(Se),deadline:Date.now()+e.budgetMs,start:Date.now(),nodes:0,wallSeat:[],wallPly:[],params:e};{let p=n.history.filter(h=>h.player===n.turn),f=p[p.length-1];f&&f.payload.type==="wall"&&(s.wallPly.push(-4),s.wallSeat.push(o))}let a=nt(t,o,o,s,0,e.maxDepth,!0);if(a.length===
+0)return null;{let p=zo.get(t.hashLo>>>0);if(p&&p.hi===t.hashHi>>>0){let f=a.findIndex(h=>h.code===p.best);if(f>0){let h=a[f];a.splice(f,1),a.unshift(h)}}}let l=null,u=-1/0,y=0,c=0,m=-1/0,b=3.5,P=(p,f)=>{s.wallPly.length=0,s.wallSeat.length=0;let h=Number.isFinite(m)&&m<-2?1:0,d=null,x=-1/0,A=f,v=0;try{for(let S of a){let w;if(S.isWall){let M={type:"wall",wall:{x:S.x,y:S.y,o:S.o,by:n.turn}},L=t.turn;
+s.wallPly.push(0),s.wallSeat.push(o),qo(t,o,S.x,S.y,S.o),w=Q(t,1,p-1,A,1/0,o,s,o);{let g=zn(t),C=J(g,o,t.px[o],t.py[o],t.size)*.005+Fo(o,t.px[o],t.py[o],t.size)*.002;w-=w<-K/2?C*10:C}Tn(t,o,S.x,S.y,S.o,L),s.wallSeat.pop(),s.wallPly.pop(),w>x&&(x=w,d=M)}else{let M={type:"pawn",from:{x:t.px[o],y:t.py[o]},to:{x:S.x,y:S.y}},L=t.px[o],g=t.py[o],C=t.turn;$o(t,o,S.x,S.y),w=Q(t,1,p-1,A,1/0,o,s,o);{let _=zn(
+t),I=J(_,o,S.x,S.y,t.size)*.005+Fo(o,S.x,S.y,t.size)*.002;w-=w<-K/2?I*10:I,w-=J(_,o,S.x,S.y,t.size)*.2*h;let D=r.get(S.y*t.size+S.x)??0;w>K/2&&(D*=.25),D&&(w-=D),w<-K/2&&i&&(w-=J(_,o,S.x,S.y,t.size)*8)}Nn(t,o,L,g,C),w>x&&(x=w,d=M)}v++,S.score=w,x>A&&(A=x)}}catch(S){if(S instanceof ve)return{localBest:d,localScore:x,searched:v,aborted:!0};throw S}return{localBest:d,localScore:x,searched:v,aborted:!1}};
+for(let p=2;p<=e.maxDepth;p++){a.sort((v,S)=>S.score-v.score);let f=s.params.pawnLmr&&p>=3&&Number.isFinite(m),h=f?m-b:-1/0,d=P(p,h);if(!d.aborted&&f&&d.searched>0&&d.localScore<=h&&(d=P(p,-1/0)),d.aborted){p===2&&d.searched>0&&d.localBest&&(l=d.localBest,u=d.localScore);break}if(d.localBest&&(l=d.localBest,u=d.localScore,y=p,m=d.localScore),u>K/2)break;let x=Date.now()-s.start;if(x>e.budgetMs)break;
+let A=Math.max(x-c,1);if(c=x,x+A*3>e.budgetMs)break}return Ke.nodes=s.nodes,Ke.depth=y,Ke.elapsedMs=Date.now()-s.start,l?{payload:l,score:Number.isFinite(u)?u:-1e9}:null}var Ke={nodes:0,depth:0,elapsedMs:0,dcHits:0,dcMisses:0};function Uo(n,e,o){let t=F(n),r=an(n,e),i=j(n,e);if(r.length===0)return null;let s=on(n.walls,t),a=1/0;for(let y of r){let c=q(s,y,e,t);c>=0&&c<a&&(a=c)}let l=r.filter(y=>q(s,y,e,t)===a);l.length===0&&(l=r);{let y=[...n.history].reverse().find(c=>c.player===e&&c.payload.type==="pawn");if(y&&y.payload.type==="pawn"){let c=y.payload.from,m=l.filter(b=>!(b.x===c.x&&b.y===c.y));m.length>0&&(l=m)}}let u=l[0];
+return{payload:{type:"pawn",from:{x:i.x,y:i.y},to:{x:u.x,y:u.y}},label:Qo[o]}}function Lr(n,e,o){let t=F(n);if(ln(n,e)<=0)return null;for(let r=0;r<=t-2;r++)for(let i=0;i<=t-2;i++)for(let s of["h","v"])if(kn(n,r,i,s,e).ok)return{payload:{type:"wall",wall:{x:r,y:i,o:s,by:e}},label:Vo[o]};return null}function et(n,e,o){if(n.winner)return null;let t=n.turn;if(n.playerCount!==4||Pe(n,t))return null;let r=F(
+n),i=an(n,t).find(c=>Bn(t,c.x,c.y,r));if(i){let c=j(n,t);return{payload:{type:"pawn",from:{x:c.x,y:c.y},to:{x:i.x,y:i.y}},label:Zt[e],score:K-1}}if(e===1)return Io(n,1,o);let a=Dn(n).filter(c=>c!==t);if(a.length===0)return null;{let c=on(n.walls,r),m=q(c,j(n,t),t,r),b=1/0,P=0;for(let p of a){let f=q(c,j(n,p),p,r);f>=0&&f<b&&(b=f),P+=ln(n,p)}if(P===0&&m<=b-2)return Uo(n,t,e)}let l=tr(e,r),u=o?.budgetMs,
+y=u!=null?Math.min(l.budgetMs,u):l.budgetMs;try{let c=Cr(n,{...l,budgetMs:y});if(c){let m=c.payload.type==="wall"?Vo[e]:Qo[e];return{payload:c.payload,label:m,score:c.score}}}catch(c){console.error("四人 AI 计算异常，使用兜底",c)}return Uo(n,t,e)??Lr(n,t,e)}function Wr(n){let o=[],t=[];for(let r of n.walls){let i=r.y*8+r.x;r.o==="h"?o.push(i):t.push(i)}return(o.length?o.join(","):"0")+"."+(t.length?t.join(","):"0")+"."+n.posA.x+n.posA.y+"."+n.posB.x+n.posB.y+"."+(n.turn==="A"?"0":"1")}var Ir={"0.0.35.43.1":"P4,3,4,4:1","0.0.36.42.1":"W2,4,h:1|P4,2,4,3:2","0.0.36.43.0":"P3,6,3,5:2","0.0.37.30.1":"P3,0,3,1:2","0.0.37.41.1":"W3,6,h:2|W2,6,h:3|P4,1,4,2:5\
+|W4,7,v:1|W2,5,h:1","0.0.37.42.0":"P3,7,3,6:4","0.0.38.30.0":"P3,8,3,7:3|W4,0,v:2","0.0.38.40.1":"W2,6,v:3|W2,7,v:7|P4,0,3,0:6|P4,0,4,1:21|W3,7,h:4|W3,6,h:2|W2,7,h:2|W1,6,h:2|P4,0,5,0:1|W1,7,h:1|W3,7,v:2|W4,6,v:1","0.0.38.41.0":"W4,1,h:3|P3,8,3,7:14|W4,2,h:2|W4,3,h:1","0.0.46.41.1":"W4,5,h:1|P4,1,4,2:6|W3,5,h:2|W3,5,v:1","0.0.46.42.0":"P4,6,4,5:2","0.0.47.40.1":"W4,6,h:25|P4,0,4,1:17|W3,5,h:3|W4,5\
+,h:3","0.0.47.41.0":"P4,7,4,6:11|W4,7,h:1|W3,7,h:1|W4,1,h:2","0.0.48.40.0":"P4,8,4,7:50|P4,8,3,8:54|P4,8,5,8:28|W4,1,h:14|W3,1,h:8|W6,0,h:2|W4,1,v:6|W5,1,v:2|W5,2,v:2|W4,0,h:31|W3,0,h:16|W3,0,v:13|W5,0,v:3|W3,2,h:8|W4,0,v:10|W3,1,v:4|W4,2,v:1|W4,2,h:4|W4,6,h:2|W2,2,v:4|W6,1,h:1|W2,1,h:4|W3,2,v:1|W6,2,v:2|W5,6,h:2","0.0.56.42.1":"P4,2,4,3:1|W5,5,h:1","0.0.57.41.1":"P4,1,4,2:3|W5,5,h:1|W5,6,h:1|P4,1\
+,5,1:1","0.0.57.42.0":"P5,7,5,6:3","0.0.57.51.0":"P5,7,5,6:1|W5,7,h:1","0.0.58.40.1":"W6,7,v:2|W5,7,v:2|P4,0,4,1:9|W4,7,v:1|W5,7,h:2|P4,0,5,0:3|W5,6,v:4|W6,6,h:2|W6,7,h:1","0.0.58.41.0":"P5,8,5,7:7|W3,2,h:2","0.0.58.50.0":"P5,8,5,7:2","0.11.48.40.1":"P4,0,4,1:2","0.58.37.40.1":"W3,6,h:3","0.58.38.40.0":"P3,8,3,7:3|W4,0,h:2","0.53.58.40.0":"P5,8,5,7:2","0.12.48.40.1":"P4,0,3,0:1|W5,6,v:1","0.18.48.\
+40.1":"P4,0,4,1:2|P4,0,5,0:1","0.3.48.40.1":"W4,7,v:1|P4,0,4,1:2|W4,6,v:1|W3,7,h:1|W4,6,h:2","0.3.48.41.0":"W4,1,h:2","0.50.38.40.0":"W4,1,h:2|W4,0,h:1","0.4.47.30.1":"P3,0,3,1:2","0.4.47.31.0":"W2,1,h:1","0.4.48.30.0":"P4,8,4,7:2","0.4.48.40.1":"P4,0,3,0:4|P4,0,4,1:2|W4,7,h:1|W5,7,v:1","0.5.48.40.1":"W4,7,v:1","0.62.58.40.0":"P5,8,5,7:2","52.0.37.32.0":"P3,7,3,6:2","52.0.37.40.1":"W2,6,h:5|P4,0,4\
+,1:4","52.0.37.41.0":"W4,1,v:4","52.0.37.42.1":"P4,2,3,2:2|P4,2,4,3:2","52.0.38.41.1":"P4,1,4,2:1|P4,1,3,1:1","52.0.47.40.0":"P4,7,4,8:13|P4,7,3,7:10|W4,7,h:2","52.0.47.41.1":"W3,7,v:2|P4,1,4,2:5|W3,6,v:2","52.0.47.42.0":"P4,7,3,7:4","52.0.48.40.1":"P4,0,4,1:12|P4,0,5,0:1","52.0.48.41.0":"P4,8,4,7:9|P4,8,3,8:2","52.12.36.31.1":"P3,1,3,2:3","52.12.36.32.0":"P3,6,3,5:2","52.12.37.31.0":"P3,7,3,6:4",
+"52.12.37.41.1":"P4,1,3,1:3","50,52.0.27.40.1":"W1,7,v:2","50,52.0.37.40.0":"P3,7,2,7:2|W6,7,h:1","11.0.48.40.1":"P4,0,5,0:2","11.0.48.50.0":"P4,8,4,7:2","53.0.48.40.1":"P4,0,4,1:1","43.0.46.41.0":"P4,6,5,6:2","43.0.47.40.0":"P4,7,5,7:3","43.0.57.40.1":"P4,0,4,1:2","43.0.57.41.0":"P5,7,6,7:2","12.0.38.31.0":"P3,8,3,7:2","12.0.38.41.1":"P4,1,3,1:3","12.0.46.31.1":"P3,1,3,2:2","12.0.47.30.1":"P3,0,3\
+,1:2|P3,0,2,0:1","12.0.47.31.0":"P4,7,4,6:2","12.0.47.41.1":"P4,1,3,1:1","12.0.48.30.0":"P4,8,4,7:4","12.0.48.40.1":"P4,0,5,0:2|W3,6,v:1|P4,0,3,0:4|W4,7,h:1|W2,6,v:1","59.0.38.40.0":"P3,8,4,8:4","59.0.48.40.1":"P4,0,4,1:2","3,59.0.48.40.0":"P4,8,5,8:2","3,59.0.58.40.1":"P4,0,5,0:1","44.0.37.40.1":"P4,0,4,1:2","44.0.47.40.0":"W4,0,v:1|P4,7,3,7:2","3.0.47.50.1":"P5,0,5,1:2","3.0.48.40.1":"P4,0,3,0:2\
+|W3,7,h:3|P4,0,5,0:5|W5,7,v:1","3.0.48.50.0":"P4,8,4,7:5","52,60.0.47.40.1":"P4,0,4,1:3","52,60.0.47.41.0":"P4,7,5,7:1","50.0.37.41.0":"P3,7,4,7:2","50.0.47.41.1":"P4,1,4,2:1|W4,6,h:1","19.0.48.40.1":"W6,6,h:1|W4,7,v:2|P4,0,4,1:1|W5,7,h:1","4.0.38.30.1":"P3,0,3,1:2","4.0.45.32.1":"P3,2,3,3:2","4.0.46.31.1":"P3,1,3,2:3","4.0.46.32.0":"P4,6,4,5:3","4.0.47.30.1":"P3,0,3,1:4","4.0.47.31.0":"P4,7,4,6:4",
+"4.0.47.50.1":"P5,0,6,0:3|W3,6,h:1","4.0.47.60.0":"W7,2,h:1|W7,1,h:1","4.0.48.30.0":"W2,0,h:5|P4,8,4,7:6|P4,8,3,8:2","4.0.48.40.1":"P4,0,5,0:5|P4,0,3,0:13|W4,6,v:3|W5,2,h:1|W6,1,v:2|W3,6,v:2|W3,7,v:1","4.0.48.50.0":"P4,8,4,7:5","4.58.38.30.0":"P3,8,3,7:1","61.0.58.40.0":"W4,0,h:1","2,4.0.48.30.1":"P3,0,2,0:1","51.0.27.41.1":"W1,6,h:2","51.0.37.41.0":"P3,7,2,7:2","51.58.37.40.0":"P3,7,4,7:2","20.0.\
+38.41.1":"P4,1,3,1:2","20.0.48.40.1":"P4,0,4,1:2|W2,6,v:1","49,51.0.27.41.0":"W5,7,h:1","10.0.48.40.1":"P4,0,4,1:2","10.0.48.41.0":"P4,8,4,7:2"};function ot(n,e){if(n[0]==="P"){let[i,s,a,l]=n.slice(1).split(",").map(Number);return{type:"pawn",from:{x:i,y:s},to:{x:a,y:l}}}let[o,t,r]=[Number(n[1]),Number(n[3]),n[5]];return{type:"wall",wall:{x:o,y:t,o:r,by:e}}}function tt(n){if(n.playerCount!==2||n.size!==
+9||n.wallsStart!==10||n.history.length>=10)return null;let e=Ir[Wr(n)];if(!e)return null;let o=e.split("|"),t=0,r=[];for(let a of o){let l=Number(a.slice(a.lastIndexOf(":")+1));r.push(l),t+=l}let i=Math.random()*t,s=n.turn;for(let a=0;a<o.length;a++)if(i-=r[a],i<=0){let l=o[a].slice(0,o[a].lastIndexOf(":"));return ot(l,s)}return ot(o[0].slice(0,o[0].lastIndexOf(":")),s)}var yn=28,R=1e5,z=169,he=144,_n=21,Pn=288,_r=1048576,X=1e-6,oo=typeof process<"u"&&process.env?.QUORIDOR_AI_DEPTH?Number(process.env.QUORIDOR_AI_DEPTH):null,to=typeof process<"u"&&process.env?.QUORIDOR_AI_WALLS?Number(process.env.QUORIDOR_AI_WALLS):null,ro=typeof process<"u"&&process.env?.QUORIDOR_AI_ROOT?Number(process.env.QUORIDOR_AI_ROOT):null,nn=typeof process<"u"?process.env:{},Or=!!nn.QUORIDOR_AI_OFF_RF,
+Br=!!nn.QUORIDOR_AI_OFF_LMR,rt=!!nn.QUORIDOR_AI_OFF_EXT,Dr=!!nn.QUORIDOR_AI_OFF_ASP,kr=!!nn.QUORIDOR_AI_OFF_PTT,st=!!nn.QUORIDOR_AI_OFF_RW,Rr=!!nn.QUORIDOR_AI_OFF_NMP,Er=!!nn.QUORIDOR_AI_OFF_QS,Nr=!!nn.QUORIDOR_AI_OFF_WP,so=!!nn.QUORIDOR_AI_OFF_SHUTTLE,yo=!!nn.QUORIDOR_AI_OFF_CM,it=!!nn.QUORIDOR_AI_OFF_LMR2,Tr=!!nn.QUORIDOR_AI_OFF_TTD,zr=!!nn.QUORIDOR_AI_PW,Hr=!zr,Fr=typeof process<"u"&&!!process.
+env?.QUORIDOR_AI_DEBUG,Gr=!!(typeof process<"u"?process.env:{}).QUORIDOR_AI_BOOK,Ur=!!(typeof process<"u"?process.env:{}).QUORIDOR_AI_NO_BOOK;function Vr(n,e){let o=e<=5?.55:e===7?.8:e===9?1:e===11?1.2:1.55;return n===2?{budgetMs:Math.round(2e3*o),maxDepth:oo??7,wallLimit:to??16,rootWallLimit:ro??24,qs:!1,discipline:!1}:n===3?{budgetMs:Math.round(4600*o),maxDepth:oo??(e<=5?14:e===7?13:e===9?18:e===
+11?9:8),wallLimit:to??22,rootWallLimit:ro??36,qs:!1,discipline:!0}:{budgetMs:Math.round(9e3*o),maxDepth:oo??(e<=5?18:e===7?17:e===9?22:e===11?11:9),wallLimit:to??24,rootWallLimit:ro??44,qs:!1,discipline:!0}}function Qr(n){let e=n>>>0;return()=>(e^=e<<13,e>>>=0,e^=e>>>17,e^=e<<5,e>>>=0,e)}var $=Qr(1597463007),Re=new Int32Array(z),Ee=new Int32Array(z),Ne=new Int32Array(z),Te=new Int32Array(z),Gn=new Int32Array(
+he),Un=new Int32Array(he),Vn=new Int32Array(he),Qn=new Int32Array(he),Xn=new Int32Array(_n+2),jn=new Int32Array(_n+2),$n=new Int32Array(_n+2),qn=new Int32Array(_n+2),ho=new Int32Array(16),mo=new Int32Array(16),gn=0,xn=0;(function(){for(let e=0;e<z;e++)Re[e]=$(),Ee[e]=$(),Ne[e]=$(),Te[e]=$();for(let e=0;e<he;e++)Gn[e]=$(),Un[e]=$(),Vn[e]=$(),Qn[e]=$();for(let e=0;e<=_n+1;e++)Xn[e]=$(),jn[e]=$(),$n[e]=
+$(),qn[e]=$();for(let e=0;e<16;e++)ho[e]=$(),mo[e]=$();gn=$(),xn=$()})();function Pt(n){let e=F(n),o=on(n.walls,e),t=e-1,r=ho[e],i=mo[e],s=ho[e]^0,a=mo[e]^0,l=n.posA.y*e+n.posA.x,u=n.posB.y*e+n.posB.x;r^=Re[l]^Ne[u],i^=Ee[l]^Te[u];for(let m=0;m<t*t;m++)o.h[m]&&(r^=Gn[m],i^=Un[m],s^=Gn[m],a^=Un[m]),o.v[m]&&(r^=Vn[m],i^=Qn[m],s^=Vn[m],a^=Qn[m]);let y=Math.min(Math.max(n.wallsA,0),_n),c=Math.min(Math.
+max(n.wallsB,0),_n);return r^=Xn[y]^$n[c],i^=jn[y]^qn[c],n.turn==="B"&&(r^=gn,i^=xn),{size:e,h:o.h,v:o.v,posA:{...n.posA},posB:{...n.posB},wallsA:n.wallsA,wallsB:n.wallsB,wallsStart:Number.isFinite(n.wallsStart)?n.wallsStart:10,hashLo:r|0,hashHi:i|0,gLo:s|0,gHi:a|0}}var Xr=15,me=1<<Xr,jr=me-1,lt=new Int32Array(me),at=new Int32Array(me),ut=new Uint8Array(me),io=new Array(me).fill(null),gt=0,xt=0,Hn=new Int32Array(
+z),ft=[[0,-1],[0,1],[-1,0],[1,0]];function fn(n){let e=n.gLo>>>0&jr;if(ut[e]&&lt[e]===n.gLo&&at[e]===n.gHi)return gt++,io[e];xt++;let o=io[e];o||(o=new Int16Array(z*2),io[e]=o);let t=n.size,r=t*t,i={h:n.h,v:n.v};o.fill(-1,0,r),o.fill(-1,z,z+r);{let s=0,a=0;for(let l=0;l<t;l++)o[l]=0,Hn[a++]=l;for(;s<a;){let l=Hn[s++],u=l%t,y=(l-u)/t,c=o[l];for(let[m,b]of ft){let P=u+m,p=y+b;if(P<0||P>t-1||p<0||p>t-
+1||H(i,u,y,m,b))continue;let f=p*t+P;o[f]===-1&&(o[f]=c+1,Hn[a++]=f)}}}{let s=z,a=t-1,l=0,u=0;for(let y=0;y<t;y++)o[s+a*t+y]=0,Hn[u++]=a*t+y;for(;l<u;){let y=Hn[l++],c=y%t,m=(y-c)/t,b=o[s+y];for(let[P,p]of ft){let f=c+P,h=m+p;if(f<0||f>t-1||h<0||h>t-1||H(i,c,m,P,p))continue;let d=h*t+f;o[s+d]===-1&&(o[s+d]=b+1,Hn[u++]=d)}}}return ut[e]=1,lt[e]=n.gLo,at[e]=n.gHi,o}function V(n,e){let o=fn(n),t=e===
+"A"?n.posA:n.posB;return o[(e==="A"?0:z)+t.y*n.size+t.x]}function ye(n,e,o,t){let r=n.size-1,i=o*r+e,s=t==="h"?n.h:n.v,a=s[i],l=t==="h"?Gn[i]:Vn[i],u=t==="h"?Un[i]:Qn[i];s[i]=1,n.gLo=n.gLo^l|0,n.gHi=n.gHi^u|0;let y=fn(n),c=n.posA.y*n.size+n.posA.x,m=n.posB.y*n.size+n.posB.x,b=y[c],P=y[z+m];return s[i]=a,n.gLo=n.gLo^l|0,n.gHi=n.gHi^u|0,{dA:b,dB:P,pathCut:b<0||P<0}}function ct(n,e,o,t){let r=n.size-1,i=n.h,s=n.v;if(t==="h"){let l=0;if(e===0)l++;else{let u=!1;
+e>=2&&i[o*r+(e-2)]&&(u=!0),!u&&e>=1&&(o>=1&&s[(o-1)*r+(e-1)]&&(u=!0),!u&&s[o*r+(e-1)]&&(u=!0),!u&&o<=r-2&&s[(o+1)*r+(e-1)]&&(u=!0)),u&&l++}if((o>=1&&s[(o-1)*r+e]||o<=r-2&&s[(o+1)*r+e])&&l++,e===r-1)l++;else{let u=!1;e<=r-3&&i[o*r+(e+2)]&&(u=!0),!u&&e<=r-2&&(o>=1&&s[(o-1)*r+(e+1)]&&(u=!0),!u&&s[o*r+(e+1)]&&(u=!0),!u&&o<=r-2&&s[(o+1)*r+(e+1)]&&(u=!0)),u&&l++}return l>=2}let a=0;if(o===0)a++;else{let l=!1;
+o>=2&&s[(o-2)*r+e]&&(l=!0),!l&&o>=1&&(e>=1&&i[(o-1)*r+(e-1)]&&(l=!0),!l&&i[(o-1)*r+e]&&(l=!0),!l&&e<=r-2&&i[(o-1)*r+(e+1)]&&(l=!0)),l&&a++}if((e>=1&&i[o*r+(e-1)]||e<=r-2&&i[o*r+(e+1)])&&a++,o===r-1)a++;else{let l=!1;o<=r-3&&s[(o+2)*r+e]&&(l=!0),!l&&o<=r-2&&(e>=1&&i[(o+1)*r+(e-1)]&&(l=!0),!l&&i[(o+1)*r+e]&&(l=!0),!l&&e<=r-2&&i[(o+1)*r+(e+1)]&&(l=!0)),l&&a++}return a>=2}function Be(n,e,o){let t=n.size,
+r=e==="A"?Re:Ne,i=e==="A"?Ee:Te,s=e==="A"?n.posA:n.posB,a=s.y*t+s.x,l=o.y*t+o.x;n.hashLo=n.hashLo^r[a]^r[l]^gn|0,n.hashHi=n.hashHi^i[a]^i[l]^xn|0,e==="A"?n.posA={x:o.x,y:o.y}:n.posB={x:o.x,y:o.y}}function wn(n,e,o){let t=n.size,r=e==="A"?Re:Ne,i=e==="A"?Ee:Te,s=e==="A"?n.posA:n.posB,a=o.y*t+o.x,l=s.y*t+s.x;n.hashLo=n.hashLo^r[a]^r[l]^gn|0,n.hashHi=n.hashHi^i[a]^i[l]^xn|0,e==="A"?n.posA={x:o.x,y:o.
+y}:n.posB={x:o.x,y:o.y}}function de(n,e,o,t,r){let i=n.size-1,s=t*i+o,a=r==="h"?Gn[s]:Vn[s],l=r==="h"?Un[s]:Qn[s];if(n.hashLo=n.hashLo^a^gn|0,n.hashHi=n.hashHi^l^xn|0,n.gLo=n.gLo^a|0,n.gHi=n.gHi^l|0,r==="h"?n.h[s]=1:n.v[s]=1,e==="A"){let u=n.wallsA;n.hashLo=n.hashLo^Xn[u]^Xn[u-1]|0,n.hashHi=n.hashHi^jn[u]^jn[u-1]|0,n.wallsA=u-1}else{let u=n.wallsB;n.hashLo=n.hashLo^$n[u]^$n[u-1]|0,n.hashHi=n.hashHi^
+qn[u]^qn[u-1]|0,n.wallsB=u-1}}function cn(n,e,o,t,r){let i=n.size-1,s=t*i+o,a=r==="h"?Gn[s]:Vn[s],l=r==="h"?Un[s]:Qn[s];if(n.hashLo=n.hashLo^a^gn|0,n.hashHi=n.hashHi^l^xn|0,n.gLo=n.gLo^a|0,n.gHi=n.gHi^l|0,r==="h"?n.h[s]=0:n.v[s]=0,e==="A"){let u=n.wallsA;n.wallsA=u+1,n.hashLo=n.hashLo^Xn[u+1]^Xn[u]|0,n.hashHi=n.hashHi^jn[u+1]^jn[u]|0}else{let u=n.wallsB;n.wallsB=u+1,n.hashLo=n.hashLo^$n[u+1]^$n[u]|
+0,n.hashHi=n.hashHi^qn[u+1]^qn[u]|0}}function Mt(n,e){let o=n.size,t=e==="A"?n.posA:n.posB,r=e==="A"?n.posB:n.posA,i={h:n.h,v:n.v},s=[],a=[[0,-1],[0,1],[-1,0],[1,0]];for(let[l,u]of a){let y=t.x+l,c=t.y+u;if(!(y<0||y>o-1||c<0||c>o-1)&&!H(i,t.x,t.y,l,u))if(r.x===y&&r.y===c){let m=t.x+2*l,b=t.y+2*u;if(m>=0&&m<=o-1&&b>=0&&b<=o-1&&!H(i,y,c,l,u)){s.push({x:m,y:b});continue}let f=l!==0?[[0,-1],[0,1]]:[[-1,
+0],[1,0]];for(let[h,d]of f){let x=y+h,A=c+d;x<0||x>o-1||A<0||A>o-1||H(i,y,c,h,d)||s.push({x,y:A})}}else s.push({x:y,y:c})}return s}function yt(n,e){let o=n.size,t=e==="A"?n.posA:n.posB,r=e==="A"?n.posB:n.posA,i={h:n.h,v:n.v},s=0,a=[[0,-1],[0,1],[-1,0],[1,0]];for(let[l,u]of a){let y=t.x+l,c=t.y+u;if(!(y<0||y>o-1||c<0||c>o-1)&&!H(i,t.x,t.y,l,u))if(r.x===y&&r.y===c){let m=t.x+2*l,b=t.y+2*u;if(m>=0&&m<=
+o-1&&b>=0&&b<=o-1&&!H(i,y,c,l,u)){s++;continue}let f=l!==0?[[0,-1],[0,1]]:[[-1,0],[1,0]];for(let[h,d]of f){let x=y+h,A=c+d;x<0||x>o-1||A<0||A>o-1||H(i,y,c,h,d)||s++}}else s++}return s}function vt(n,e){let o=n.size,t=e==="A"?n.posA:n.posB,r=e==="A"?n.posB:n.posA,i=hn(e,o);if(t.y===i)return!1;let s={h:n.h,v:n.v},a=[[0,-1],[0,1],[-1,0],[1,0]];for(let[l,u]of a){let y=t.x+l,c=t.y+u;if(!(y<0||y>o-1||c<0||
+c>o-1)&&!H(s,t.x,t.y,l,u)){if(r.x===y&&r.y===c){let m=t.x+2*l,b=t.y+2*u;if(m>=0&&m<=o-1&&b>=0&&b<=o-1&&!H(s,y,c,l,u)&&b===i)return!0;let p=l!==0?[[0,-1],[0,1]]:[[-1,0],[1,0]];for(let[f,h]of p){let d=y+f,x=c+h;if(!(d<0||d>o-1||x<0||x>o-1)&&!H(s,y,c,f,h)&&x===i)return!0}}else if(c===i)return!0}}return!1}var Le=new Uint8Array(z),wo=[[0,-1],[0,1],[-1,0],[1,0]];function $r(n,e){let o=n.size,t=fn(n),r=e===
+"A"?0:z,i=e==="A"?n.posA:n.posB,s=i.y*o+i.x,a=t[r+s];if(a<=0)return null;Le.fill(0,0,o*o),Le[s]=1;let l={h:n.h,v:n.v};for(;a>0;){let u=s%o,y=(s-u)/o,c=-1;for(let[m,b]of wo){let P=u+m,p=y+b;if(!(P<0||P>o-1||p<0||p>o-1)&&!H(l,u,y,m,b)&&t[r+p*o+P]===a-1){c=p*o+P;break}}if(c<0)return null;Le[c]=1,s=c,a--}return Le}var St=0,Ct=1,Lt=2,dt=new Map,qr=4e5,De=class extends Error{},Wt=new De;function Kr(n,e){
+return _r+n.y*e+n.x}function It(n,e,o,t){return(e*(t-1)+n)*2+(o==="h"?0:1)}function Yr(n,e,o,t){let r=n.size-1,i=r-1;if(e<0||o<0||e>i||o>i)return!0;if(t==="h"){if(n.h[o*r+e]||e>0&&n.h[o*r+e-1]||e<i&&n.h[o*r+e+1]||n.v[o*r+e])return!0}else if(n.v[o*r+e]||o>0&&n.v[(o-1)*r+e]||o<i&&n.v[(o+1)*r+e]||n.h[o*r+e])return!0;return!1}function _t(n,e,o,t,r,i,s){let a=[],l=n.size,u=l-1,y=u-1,c=e==="A"?n.posA:n.
+posB,m=e==="A"?n.posB:n.posA,b=hn(e,l),P=w=>!yo&&o&&s>=0&&s<Pn&&o.counter[s]===w?45:0;for(let w of Mt(n,e)){let M=Math.abs(c.y-b)-Math.abs(w.y-b),L=Math.abs(w.x-c.x)+Math.abs(w.y-c.y)>=2?1:0,g=Kr(w,l),C=P(g);a.push({code:g,payload:{type:"pawn",from:{x:c.x,y:c.y},to:{x:w.x,y:w.y}},score:M*12+L*8+C})}if((e==="A"?n.wallsA:n.wallsB)<=0)return a.sort((w,M)=>M.score-w.score);let f=null;o&&(f=$r(n,T(e)));
+let h=new Set,d=(w,M,L,g)=>{if(w<0||M<0||w>y||M>y)return;let C=It(w,M,L,l);if(h.has(C))return;if(h.add(C),L==="h"){if(n.h[M*u+w]||w>0&&n.h[M*u+w-1]||w<y&&n.h[M*u+w+1]||n.v[M*u+w])return}else if(n.v[M*u+w]||M>0&&n.v[(M-1)*u+w]||M<y&&n.v[(M+1)*u+w]||n.h[M*u+w])return;let _=g;if(f){let D=!1;for(let k=-1;k<=1&&!D;k++)for(let W=-1;W<=1;W++){let O=w+k,B=M+W;if(!(O<0||B<0||O>=l||B>=l)&&f[B*l+O]){D=!0;break}}
+D&&(_+=30)}o&&(t<yn&&(o.killers[t*2]===C||o.killers[t*2+1]===C)&&(_+=55),C<Pn&&(_+=Math.min(40,o.history[C]/8)));let I=P(C);I&&(_+=I),a.push({code:C,payload:{type:"wall",wall:{x:w,y:M,o:L,by:e}},score:_})};for(let w=-2;w<=2;w++)for(let M=-2;M<=2;M++){let L=m.x+w,g=m.y+M,C=Math.abs(w)<=1&&Math.abs(M)<=1?6:2;d(L,g,"h",C),d(L,g,"v",C)}for(let w=-1;w<=1;w++)d(c.x+w,c.y-2,"h",4),d(c.x+w,c.y+2,"h",4);for(let w=-1;w<=
+1;w++)d(c.x-2,c.y+w,"v",4),d(c.x+2,c.y+w,"v",4);let x=hn(T(e),l);for(let w=-2;w<=2;w++)d(m.x+w,x===0?0:l-2,"h",3);for(let w=0;w<u*u;w++){if(n.h[w]){let M=w/u|0,L=w-M*u;d(L-2,M,"h",3),d(L+2,M,"h",3)}if(n.v[w]){let M=w/u|0,L=w-M*u;d(L,M-2,"v",3),d(L,M+2,"v",3)}}if(r&&!Hr){let w=fn(n),M=T(e)==="A"?0:z,L={h:n.h,v:n.v},g=m.x,C=m.y,_=w[M+C*l+g];for(let I=0;I<8&&_>0;I++){let D=-1,k=-1,W=0,O=0;for(let[B,N]of wo){
+let G=g+B,sn=C+N;if(!(G<0||G>l-1||sn<0||sn>l-1)&&!H(L,g,C,B,N)&&w[M+sn*l+G]===_-1){D=G,k=sn,W=B,O=N;break}}if(D<0)break;if(O!==0){let B=O===-1?C-1:C;d(g,B,"h",8),d(g-1,B,"h",8)}else{let B=W===1?g:g-1;d(B,C,"v",8),d(B,C-1,"v",8)}g=D,C=k,_--}}let A=[],v=[];for(let w of a)w.payload.type==="wall"?A.push(w):v.push(w);if(A.sort((w,M)=>M.score-w.score),r){let w=V(n,e),M=V(n,T(e)),L=[],g=0;for(let C of A){
+if(g>=i)break;let _=C.payload.wall,I=ye(n,_.x,_.y,_.o);if(I.pathCut)continue;let D=e==="A"?I.dA:I.dB,k=e==="A"?I.dB:I.dA;C.score=C.score+(k-M)*6-(D-w)*6,C.gain=k-M,L.push(C),g++}L.sort((C,_)=>_.score-C.score),A=L}else A=A.slice(0,i);let S=[...A,...v];return S.sort((w,M)=>M.score-w.score),S}function Ot(n,e,o){let r=(o.wallPly.length>0?o.wallPly[o.wallPly.length-1]:-1)%2===0?n:T(n),i=R-e;return r===
+n?-i:i}function Zr(n,e,o){let t=n.posA.y,r=n.posA.x,i=n.posB.y,s=n.posB.x;if(r!==s||t<=i)return 0;let a=t-i;if(a<2||a>6)return 0;let l={h:n.h,v:n.v};for(let y=i;y<t;y++)if(H(l,r,y,0,1))return 0;return(a%2===1?o:T(o))===e?2:-2}function ht(n,e,o,t){if(t<=0)return 0;let r=n.size,i=o==="A"?0:z,s=o==="A"?n.posA:n.posB,a={h:n.h,v:n.v},l=0,u=[[0,-1],[0,1],[-1,0],[1,0]];for(let[y,c]of u){let m=s.x+y,b=s.y+
+c;m<0||m>r-1||b<0||b>r-1||H(a,s.x,s.y,y,c)||e[i+b*r+m]===t-1&&l++}return l}function bo(n,e,o,t){let r=fn(n),i=n.size,s=n.posA.y*i+n.posA.x,a=n.posB.y*i+n.posB.x,l=r[s],u=r[z+a];if(l===0)return e==="A"?R-o:-(R-o);if(u===0)return e==="B"?R-o:-(R-o);if(l<0||u<0)return Ot(e,o,t);let y=e==="A"?l:u,c=e==="A"?u:l,m=e==="A"?n.wallsA:n.wallsB,b=e==="A"?n.wallsB:n.wallsA,P=yt(n,e),p=yt(n,T(e)),f=c-y+.3*(m-b)+
+.1*(P-p);if(f+=Math.min(m*.45,6)-Math.min(b*.45,6),!Nr){let v=Math.min(m,10)*Math.min(c,12),S=Math.min(b,10)*Math.min(y,12);f+=.04*(v-S)}let h=o%2===0?e:T(e);Math.abs(c-y)<=2&&(f+=h===e?.25:-.25),f+=Zr(n,e,h),f-=(v=>v<=3?(4-v)*.5:0)(P);let x=Math.min(ht(n,r,e,y),3),A=Math.min(ht(n,r,T(e),c),3);return f+=.15*(x-A),f}function lo(n,e,o,t){let r=fn(n),i=n.size,s=n.posA.y*i+n.posA.x,a=n.posB.y*i+n.posB.
+x,l=r[s],u=r[z+a];if(l===0)return e==="A"?R-o+1:-(R-o+1);if(u===0)return e==="B"?R-o+1:-(R-o+1);if(l<0||u<0)return Ot(e,o,t);let y=e==="A"?l:u,c=e==="A"?u:l,m=o%2===0?e:T(e),b=y<c||y===c&&m===e,P=b?e:T(e),f=o+2*(b?y:c)-(m===P?2:1),h=R-f;return P===e?h:-h}var Jr=24e3,Bt=0,Oe=new Map,ns=12e4;function ao(n,e,o,t){Oe.size>ns&&Oe.clear();let r=t>0,i=R-Math.abs(t);Oe.set(n.hashLo>>>0,{hi:n.hashHi>>>0,w:(r?
+e:T(e))==="A"?0:1,off:i-o})}function es(n,e,o,t){return Bt=0,Dt(n,e,o,-1/0,1/0,t)}function Dt(n,e,o,t,r,i){if(++Bt>Jr||o>=yn-1)return lo(n,e,o,i);let s=o%2===0?e:T(e),a=T(s);if((a==="A"?n.posA:n.posB).y===hn(a,n.size))return a===e?R-o+1:-(R-o+1);if(V(n,s)===1&&vt(n,s))return s===e?R-o:-(R-o);{let d=Oe.get(n.hashLo>>>0);if(d&&d.hi===n.hashHi>>>0){let x=R-(o+d.off);return(d.w===0?"A":"B")===e?x:-x}}
+if(Math.abs(n.posA.y-n.posB.y)>=2){let d=lo(n,e,o,i);return ao(n,e,o,d),d}let u=fn(n),y=n.size,c=s==="A"?0:z,m=V(n,s),b=Mt(n,s),P=[];for(let d of b){let x=u[c+d.y*y+d.x];x>=0&&x<m&&P.push({to:d,drop:m-x})}if(P.length===0){let d=lo(n,e,o,i);return ao(n,e,o,d),d}P.sort((d,x)=>x.drop-d.drop);let p=s===e,f=p?-1/0:1/0,h=!0;for(let d of P){let x=s==="A"?{x:n.posA.x,y:n.posA.y}:{x:n.posB.x,y:n.posB.y};Be(
+n,s,d.to);let A=Dt(n,e,o+1,t,r,i);if(wn(n,s,x),p){if(A>f&&(f=A),f>t&&(t=f),f>R/2)break}else if(A<f&&(f=A),f<r&&(r=f),f<-R/2)break;if(t>=r){h=!1;break}}return h&&Math.abs(f)>R/2&&ao(n,e,o,f),f}var ze=14,dn=5,os=2,ts=1,mt=4,On=5,rs=15,We=new Uint8Array(z),uo=new Int16Array(z),fo=new Int16Array(z),se=new Int16Array(ze*2),ie=new Int16Array(ze*2),le=new Uint8Array(ze*2),co=new Uint16Array(Pn),Ie=0,ae=new Int16Array(
+(On+1)*dn),ue=new Int16Array((On+1)*dn),fe=new Uint8Array((On+1)*dn),_e=new Int16Array((On+1)*dn),ce=new Int32Array((On+1)*dn);function bt(n,e,o){let t=o*dn;if((e==="A"?n.wallsA:n.wallsB)<=0||o>On)return 0;let i=T(e),s=fn(n),a=n.size,l=a-1,u=i==="A"?0:z,y=i==="A"?n.posA:n.posB,c=s[u+y.y*a+y.x];if(c<2||c>rs)return 0;let m=V(n,e);if(m<0)return 0;We.fill(0,0,a*a);let b=0,P=0;uo[P]=y.x,fo[P]=y.y,P++,We[y.
+y*a+y.x]=1;let p=0,f=ze*2,h={h:n.h,v:n.v};for(;b<P&&p<f;){let x=uo[b],A=fo[b];b++;let v=s[u+A*a+x];for(let S=0;S<4&&p<f;S++){let w=S===2?-1:S===3?1:0,M=S===0?-1:S===1?1:0,L=x+w,g=A+M;if(!(L<0||g<0||L>=a||g>=a)&&!H(h,x,A,w,M)&&s[u+g*a+L]===v-1){if(M!==0){let C=M===-1?A-1:A;if(se[p]=x,ie[p]=C,le[p]=0,p++,p>=f)break;se[p]=x-1,ie[p]=C,le[p]=0,p++}else{let C=w===1?x:x-1;if(se[p]=C,ie[p]=A,le[p]=1,p++,p>=
+f)break;se[p]=C,ie[p]=A-1,le[p]=1,p++}We[g*a+L]||(We[g*a+L]=1,uo[P]=L,fo[P]=g,P++)}}}++Ie>=65535&&(co.fill(0),Ie=1);let d=0;for(let x=0;x<p&&d<dn;x++){let A=se[x],v=ie[x],S=le[x]===0?"h":"v";if(Yr(n,A,v,S))continue;let w=It(A,v,S,a);if(co[w]===Ie)continue;co[w]=Ie;let M=ye(n,A,v,S);if(M.pathCut)continue;let L=i==="A"?M.dA:M.dB,g=e==="A"?M.dA:M.dB,C=L-c,_=C-(g-m);if(C<os||_<ts)continue;let I=d;for(;I>
+0&&_e[t+I-1]<C;)ae[t+I]=ae[t+I-1],ue[t+I]=ue[t+I-1],fe[t+I]=fe[t+I-1],_e[t+I]=_e[t+I-1],ce[t+I]=ce[t+I-1],I--;ae[t+I]=A,ue[t+I]=v,fe[t+I]=S==="h"?0:1,_e[t+I]=C,ce[t+I]=w,d++}return d}function po(n,e,o,t,r,i,s){if(s.qnodes++,(s.qnodes&127)===0&&Date.now()>s.deadline)throw Wt;let a=bo(n,i,e,s);if(Er||!s.params.qs||o>=On)return a;let l=e%2===0?i:T(i);if(l===i){if(a>=r||a<=t-mt)return a;let m=bt(n,l,o);
+if(m===0)return a;let b=o*dn,P=a;for(let p=0;p<m;p++){let f=ae[b+p],h=ue[b+p],d=fe[b+p]===0?"h":"v",x=ce[b+p];s.wallPly.push(e),de(n,l,f,h,d);let A=po(n,e+1,o+1,t,r,i,s);if(cn(n,l,f,h,d),s.wallPly.pop(),A>P&&(P=A),P>t&&(t=P),t>=r){x<Pn&&e<yn&&ke(s,e,x,1);break}}return P}if(a<=t||a>=r+mt)return a;let u=bt(n,l,o);if(u===0)return a;let y=o*dn,c=a;for(let m=0;m<u;m++){let b=ae[y+m],P=ue[y+m],p=fe[y+m]===
+0?"h":"v",f=ce[y+m];s.wallPly.push(e),de(n,l,b,P,p);let h=po(n,e+1,o+1,t,r,i,s);if(cn(n,l,b,P,p),s.wallPly.pop(),h<c&&(c=h),c<r&&(r=c),t>=r){f<Pn&&e<yn&&ke(s,e,f,1);break}}return c}function ke(n,e,o,t){if(o>=Pn||e>=yn)return;n.history[o]+=t*t,n.history[o]>1e6&&(n.history[o]=1e6);let r=n.killers[e*2];r!==o&&(n.killers[e*2+1]=r,n.killers[e*2]=o)}function pt(n,e,o,t,r,i,s,a){if(Math.abs(r)>R/2)return;
+if(n.tt.size>qr&&n.tt.clear(),!Tr){let u=n.tt.get(e);if(u&&u.hi>>>0===o>>>0&&u.depth>t)return}let l=r<=i?Lt:r>=s?Ct:St;n.tt.set(e,{hi:o>>>0,depth:t,score:r,flag:l,best:a})}function At(n,e,o,t,r,i,s,a,l){return r<5||i<4||l||Br||s===a||t<yn&&(o.killers[t*2]===s||o.killers[t*2+1]===s)||V(n,e)<=2?0:1}function E(n,e,o,t,r,i,s,a){if(s.nodes++,(s.nodes&255)===0&&Date.now()>s.deadline)throw Wt;let l=e%2===
+0?i:T(i),u=T(l);if((u==="A"?n.posA:n.posB).y===hn(u,n.size))return u===i?R-e+1:-(R-e+1);if(n.wallsA===0&&n.wallsB===0)return es(n,i,e,s);if(V(n,l)===1&&vt(n,l))return l===i?R-e:-(R-e);let c=t,m=n.hashLo>>>0,b=-1,P=s.tt.get(m);if(P&&P.hi===n.hashHi>>>0&&(b=P.best,P.depth>=o&&(P.flag===St||P.flag===Ct&&P.score>=r||P.flag===Lt&&P.score<=t)))return P.score;if(!Rr&&o>=3&&!s.inNull&&r-t<X*8&&Math.abs(r)<
+R/2&&V(n,l)>3&&(l==="A"?n.wallsA:n.wallsB)>=2){let h=o>=7?3:2;n.hashLo=n.hashLo^gn|0,n.hashHi=n.hashHi^xn|0,s.inNull=!0;let d;if(l===i?d=E(n,e+1,o-1-h,r-X,r,i,s,-1):d=E(n,e+1,o-1-h,t,t+X,i,s,-1),s.inNull=!1,n.hashLo=n.hashLo^gn|0,n.hashHi=n.hashHi^xn|0,l===i?d>=r:d<=t)return d}if(!Or&&o<=2&&r-t>X*8&&V(n,l)>2){let h=bo(n,i,e,s),d=5.5*o+1;if(l===i){if(h-d>=r)return h}else if(h+d<=t)return h}if(o<=0)
+return po(n,e,0,t,r,i,s);let p=l,f=_t(n,p,s,e,!1,s.params.wallLimit,a);if(f.length===0)return bo(n,i,e,s);if(b>=0){let h=f.findIndex(d=>d.code===b);if(h>0){let d=f[h];f.splice(h,1),f.unshift(d)}}if(p===i){let h=-1/0,d=-1,x=!0,A=0;for(let v of f){let S=A++,w,M=0,L=0;if(v.payload.type==="pawn"){let g=p==="A"?{...n.posA}:{...n.posB},C=Math.abs(v.payload.to.x-g.x)+Math.abs(v.payload.to.y-g.y)>=2,_=At(
+n,p,s,e,S,o,v.code,b,C);if(Be(n,p,v.payload.to),x)w=E(n,e+1,o-1,t,r,i,s,v.code),x=!1;else if(r-t>X*8){let I=E(n,e+1,o-1-_,t,t+X,i,s,v.code);if(I<=t){wn(n,p,g);continue}if(_>0){let D=E(n,e+1,o-1,t,t+X,i,s,v.code);if(D<=t){wn(n,p,g);continue}w=D}else w=I;w<r&&(w=E(n,e+1,o-1,t,r,i,s,v.code))}else w=E(n,e+1,o-1,t,r,i,s,v.code);wn(n,p,g)}else if(v.payload.type==="wall"){let g=v.payload.wall,C=V(n,T(p)),
+_=ct(n,g.x,g.y,g.o),I=null;if((_||C<=5)&&(I=ye(n,g.x,g.y,g.o),I.pathCut))continue;let D=I?p==="A"?I.dB:I.dA:C,k=Date.now()-s.start<s.params.budgetMs*.4,W=!rt&&k&&s.exts<2&&D-C>=2&&D<=5,O=e<yn&&(s.killers[e*2]===v.code||s.killers[e*2+1]===v.code),B=(!st&&!W&&S>=10&&o>=5&&v.code!==b&&!O&&v.score<20?1:0)+(!it&&!W&&S>=16&&o>=9&&v.code!==b&&!O&&v.score<20?1:0),N=o-(W?0:1)-B,G=o-(W?0:1),sn=B>1?G-1:G;if(s.
+wallPly.push(e),de(n,p,g.x,g.y,g.o),M=n.hashLo>>>0,L=n.hashHi>>>0,W&&s.exts++,x)w=E(n,e+1,N,t,r,i,s,v.code),x=!1;else if(r-t>X*8){let Mn=E(n,e+1,N,t,t+X,i,s,v.code);if(Mn<=t){W&&s.exts--,cn(n,p,g.x,g.y,g.o),s.wallPly.pop();continue}if(B>0){let en=E(n,e+1,sn,t,t+X,i,s,v.code);if(en<=t){W&&s.exts--,cn(n,p,g.x,g.y,g.o),s.wallPly.pop();continue}w=en}else w=Mn;w<r&&(w=E(n,e+1,G,t,r,i,s,v.code))}else w=
+E(n,e+1,N,t,r,i,s,v.code);W&&s.exts--,cn(n,p,g.x,g.y,g.o),s.wallPly.pop()}else continue;if(w>h&&(h=w,d=v.code),h>t&&(t=h),t>=r){if(v.payload.type==="wall"&&(ke(s,e,v.code,o),!yo)){let g=s.tt.get(M);g&&g.hi===L&&g.best>=0&&(s.counter[v.code]=g.best)}break}}return pt(s,m,n.hashHi,o,h,c,r,d),h}else{let h=1/0,d=-1,x=!0,A=0;for(let v of f){let S=A++,w,M=0,L=0;if(v.payload.type==="pawn"){let g=p==="A"?{
+...n.posA}:{...n.posB},C=Math.abs(v.payload.to.x-g.x)+Math.abs(v.payload.to.y-g.y)>=2,_=At(n,p,s,e,S,o,v.code,b,C);if(Be(n,p,v.payload.to),x)w=E(n,e+1,o-1,t,r,i,s,v.code),x=!1;else if(r-t>X*8){let I=E(n,e+1,o-1-_,r-X,r,i,s,v.code);if(I>=r){wn(n,p,g);continue}if(_>0){let D=E(n,e+1,o-1,r-X,r,i,s,v.code);if(D>=r){wn(n,p,g);continue}w=D}else w=I;w>t&&(w=E(n,e+1,o-1,t,r,i,s,v.code))}else w=E(n,e+1,o-1,
+t,r,i,s,v.code);wn(n,p,g)}else if(v.payload.type==="wall"){let g=v.payload.wall,C=V(n,T(p)),_=ct(n,g.x,g.y,g.o),I=null;if((_||C<=5)&&(I=ye(n,g.x,g.y,g.o),I.pathCut))continue;let D=I?p==="A"?I.dB:I.dA:C,k=Date.now()-s.start<s.params.budgetMs*.4,W=!rt&&k&&s.exts<2&&D-C>=2&&D<=5,O=e<yn&&(s.killers[e*2]===v.code||s.killers[e*2+1]===v.code),B=(!st&&!W&&S>=10&&o>=5&&v.code!==b&&!O&&v.score<20?1:0)+(!it&&
+!W&&S>=16&&o>=9&&v.code!==b&&!O&&v.score<20?1:0),N=o-(W?0:1)-B,G=o-(W?0:1),sn=B>1?G-1:G;if(s.wallPly.push(e),de(n,p,g.x,g.y,g.o),M=n.hashLo>>>0,L=n.hashHi>>>0,W&&s.exts++,x)w=E(n,e+1,N,t,r,i,s,v.code),x=!1;else if(r-t>X*8){let Mn=E(n,e+1,N,r-X,r,i,s,v.code);if(Mn>=r){W&&s.exts--,cn(n,p,g.x,g.y,g.o),s.wallPly.pop();continue}if(B>0){let en=E(n,e+1,sn,r-X,r,i,s,v.code);if(en>=r){W&&s.exts--,cn(n,p,g.
+x,g.y,g.o),s.wallPly.pop();continue}w=en}else w=Mn;w>t&&(w=E(n,e+1,G,t,r,i,s,v.code))}else w=E(n,e+1,N,t,r,i,s,v.code);W&&s.exts--,cn(n,p,g.x,g.y,g.o),s.wallPly.pop()}else continue;if(w<h&&(h=w,d=v.code),h<r&&(r=h),t>=r){if(v.payload.type==="wall"&&(ke(s,e,v.code,o),!yo)){let g=s.tt.get(M);g&&g.hi===L&&g.best>=0&&(s.counter[v.code]=g.best)}break}}return pt(s,m,n.hashHi,o,h,c,r,d),h}}var ss=3.5,is=.8;
+function wt(n){return n<=1?.35:n===2?.8:n===3?1.5:2.5}function ls(n,e){let o=n.size,t=new Map,r=[];for(let f=n.history.length-1;f>=0&&r.length<12;f--){let h=n.history[f];h.player===e&&h.payload.type==="pawn"&&r.unshift(h.payload)}if(r.length===0)return t;let i=!1;for(let f=n.history.length-1;f>=0;f--){let h=n.history[f];if(h.player===e){i=h.payload.type==="pawn";break}}let s=r.length,a=Math.max(0,
+s-11),l=new Map;for(let f=a;f<s-1;f++){let h=r[f].to.y*o+r[f].to.x;l.set(h,(l.get(h)??0)+1)}let u=0;for(let f=s-1;f>=Math.max(1,a+1);f--){let h=r[f],d=r[f-1];if(h.to.x===d.from.x&&h.to.y===d.from.y)u++;else break}let y=Math.pow(2,Math.min(u,2)),c=f=>Math.min(f,3),m=r[s-1],b=m.from.y*o+m.from.x,P=l.get(b)??0,p=i?is:.35;t.set(b,c((p+wt(P))*y));for(let[f,h]of l){if(f===b)continue;let d=c(wt(h)*y);d>0&&
+t.set(f,d)}return t}function kt(n,e,o,t){let r=n.turn,i=Pt(n),s=ls(n,r),a=n.wallsA===0&&n.wallsB===0,l={tt:kr?new Map:dt,killers:new Int32Array(yn*2),history:new Float64Array(Pn),deadline:Date.now()+e.budgetMs,start:Date.now(),nodes:0,qnodes:0,inNull:!1,params:e,wallPly:[],exts:0,counter:new Int32Array(Pn).fill(-1)},u=_t(i,r,l,0,!0,e.rootWallLimit,-1);if(u.length===0)return null;{let h=dt.get(i.hashLo>>>
+0);if(h&&h.hi===i.hashHi>>>0){let d=u.findIndex(x=>x.code===h.best);if(d>0){let x=u[d];u.splice(d,1),u.unshift(x)}}}if(e.discipline){let h=V(i,r),d=V(i,T(r));if((T(r)==="A"?i.wallsA:i.wallsB)===0&&h<=d){let A=u.filter(v=>v.payload.type!=="wall"||(v.gain??0)>=2);A.length>0&&(u=A)}}if(o&&o.mod>1&&(u=u.filter((h,d)=>d%o.mod===o.rem),u.length===0))return null;let y=u[0].payload,c=-1/0,m=0,b=-1/0,P=0,p=()=>Number.
+isFinite(b)&&b<-2?1:0,f=(h,d)=>{l.exts=0,l.wallPly.length=0,l.inNull=!1;let x=null,A=-1/0,v=d,S=0,w=!0;try{for(let M of u){let L;if(M.payload.type==="pawn"){let g=r==="A"?{...i.posA}:{...i.posB};if(Be(i,r,M.payload.to),w)L=E(i,1,h-1,v,1/0,r,l,M.code),w=!1;else{let I=E(i,1,h-1,v,v+X,r,l,M.code);L=I>v?E(i,1,h-1,v,1/0,r,l,M.code):I}let C=so?0:p();L-=V(i,r)*(.001+.2*C),L<-R/2&&(L-=V(i,r)*(a&&!so?8:.01));
+let _=so?0:s.get(M.payload.to.y*n.size+M.payload.to.x)??0;L>R/2&&(_*=.25),_&&(L-=_),wn(i,r,g)}else if(M.payload.type==="wall"){let g=M.payload.wall;if(l.wallPly.push(0),de(i,r,g.x,g.y,g.o),w)L=E(i,1,h-1,v,1/0,r,l,M.code),w=!1;else{let C=E(i,1,h-1,v,v+X,r,l,M.code);L=C>v?E(i,1,h-1,v,1/0,r,l,M.code):C}L-=V(i,r)*.001,L<-R/2&&(L-=V(i,r)*.01),cn(i,r,g.x,g.y,g.o),l.wallPly.pop()}else continue;S++,M.score=
+L,L>A&&(A=L,x=M.payload),A>v&&(v=A)}}catch(M){if(M instanceof De)return{localBest:x,localScore:A,searched:S,aborted:!0};throw M}return{localBest:x,localScore:A,searched:S,aborted:!1}};for(let h=2;h<=e.maxDepth;h++){u.sort((w,M)=>M.score-w.score);let d=!Dr&&h>=3&&Number.isFinite(b),x=d?b-ss:-1/0,A=f(h,x);if(!A.aborted&&d&&A.searched>0&&A.localScore<=x&&(A=f(h,-1/0)),A.aborted){h===2&&A.searched>0&&
+A.localBest&&(y=A.localBest,c=A.localScore);break}if(A.localBest&&(y=A.localBest,c=A.localScore,m=h,b=A.localScore,t&&t(h,y,c)),c>R/2){Fr&&console.log(`[ai] 早停必胜 depth=${h} score=${c.toFixed(1)} nodes=${l.nodes} move=${JSON.stringify(y)}`);break}let v=Date.now()-l.start;if(v>e.budgetMs)break;let S=Math.max(v-P,1);if(P=v,v+S*4>e.budgetMs)break}return Fn.nodes=l.nodes,Fn.ttSize=l.tt.size,Fn.
+elapsedMs=Date.now()-l.start,Fn.depth=m,Fn.qnodes=l.qnodes,{payload:y,score:Number.isFinite(c)?c:-1e9}}function as(n){return{...n,posA:{...n.posA},posB:{...n.posB},walls:n.walls.map(e=>({...e})),history:n.history.slice()}}function us(n){let e=F(n),o=n.turn,t=T(o),r=t==="A"?n.posA:n.posB,i=Pt(n),s=V(i,o),a=V(i,t),l=o==="A"?n.wallsA:n.wallsB,u=t==="A"?n.wallsA:n.wallsB;if(n.wallsA===0&&n.wallsB===0){let p=kt(n,{budgetMs:650,maxDepth:12,wallLimit:0,rootWallLimit:0,qs:!1,discipline:!1});if(p)return{payload:p.
+payload,label:p.payload.type==="pawn"?"学徒数着步子冲线":"学徒落子"}}if(l>0&&!(u===0&&s<=a)){let p=a<=3||a<s||u===0;if(p||Math.random()<.22){let f=p?1:2,h=a<=2?2:a<=3?1:0,d=new Set,x=(S,w,M)=>{for(let L=Math.max(0,S-M);L<=Math.min(e-2,S+M);L++)for(let g=Math.max(0,w-M);g<=Math.min(e-2,w+M);g++)d.add(L*100+g)};x(r.x,r.y,3);{let S=fn(i),w=t==="A"?0:z,M={h:i.h,v:i.v},L=r.x,g=r.y,C=S[w+g*e+
+L];for(let _=0;_<6&&C>0;_++){let I=-1,D=-1;for(let[k,W]of wo){let O=L+k,B=g+W;if(!(O<0||O>e-1||B<0||B>e-1)&&!H(M,L,g,k,W)&&S[w+B*e+O]===C-1){I=O,D=B;break}}if(I<0)break;x(I,D,1),L=I,g=D,C--}}let A=[],v=f;for(let S of d){let w=Math.floor(S/100),M=S%100;for(let L of["h","v"]){if(Kn(n.walls,w,M,L))continue;let g=ye(i,w,M,L);if(g.pathCut)continue;let C=(t==="A"?g.dA:g.dB)-a,_=(o==="A"?g.dA:g.dB)-s;C<v||
+_>h||(C>v&&(v=C,A.length=0),A.push({x:w,y:M,o:L}))}}if(A.length>0){let S=A[Math.floor(Math.random()*A.length)];return{payload:{type:"wall",wall:{x:S.x,y:S.y,o:S.o,by:o}},label:"学徒随手排了一根铅条"}}}}let y=hn(o,e),c=an(n,o),m=c.find(p=>p.y===y);if(m)return{payload:{type:"pawn",from:o==="A"?n.posA:n.posB,to:m},label:"学徒摸到了终点"};let b=fs(n,o);{let p=fn(i),f=o==="A"?0:z,h=1/0,
+d=[];for(let x of c){let A=p[f+x.y*e+x.x];A<0||(A<h&&(h=A,d.length=0),A===h&&d.push(x))}if(d.length>0){let x=[...n.history].reverse().find(S=>S.player===o&&S.payload.type==="pawn"),A=d;if(x&&x.payload.type==="pawn"){let S=x.payload.from,w=d.filter(M=>!(M.x===S.x&&M.y===S.y));w.length>0&&(A=w)}let v=A[Math.floor(Math.random()*A.length)];return{payload:{type:"pawn",from:b,to:{...v}},label:"学徒循最短路径捡字"}}}
+let P=cs(c,b,y)??c[0];return P?{payload:{type:"pawn",from:b,to:{...P}},label:"学徒循最短路径捡字"}:Ao(n,o)}function fs(n,e){return e==="A"?n.posA:n.posB}function cs(n,e,o){let t=null,r=1/0;for(let i of n){let s=Math.abs(i.y-o);s<r&&(r=s,t=i)}return t}function Ao(n,e){let o=F(n),t=an(n,e);if(t.length>0)return{payload:{type:"pawn",from:e==="A"?n.posA:n.posB,to:t[0]},label:"落子"};if((e===
+"A"?n.wallsA:n.wallsB)>0){for(let i=0;i<=o-2;i++)for(let s=0;s<=o-2;s++)for(let a of["h","v"])if(kn(n,i,s,a,e).ok)return{payload:{type:"wall",wall:{x:i,y:s,o:a,by:e}},label:"放板"}}return{payload:{type:"pawn",from:n.posA,to:n.posA},label:"无着可行"}}var ys={1:"学徒随手排了一根铅条",2:"排字师延长了你的归途",3:"总编落下一道版式",4:"社长批下一道终审版式"},ds={
+1:"学徒循最短路径捡字",2:"排字师沿最短路赶稿",3:"总编审定了去路",4:"社长亲自排定了去路"},hs={1:"学徒摸到了终点",2:"排字师一步定版",3:"总编拍板收官",4:"社长落锤定音"},ms={1:"学徒翻开了字帖",2:"排字师祭出开局定式",3:"总编祭出开局定式",4:"社长祭出开局定式"};function Rt(n,e,o){if(n.winner)return null;if(n.playerCount===
+4)return et(n,e,o);let t=as(n),r=t.turn;try{let i=F(t),s=hn(r,i),a=an(t,r).find(m=>m.y===s);if(a)return{payload:{type:"pawn",from:r==="A"?t.posA:t.posB,to:{...a}},label:hs[e],score:R-1};if(e===1)return us(t);if(Gr&&!Ur&&e>=2&&t.history.length<10&&t.size===9&&t.wallsStart===10){let m=tt(t);if(m)return{payload:m,label:ms[e]}}let l=Vr(e,i),u=o?.budgetMs,y=u!=null?Math.min(l.budgetMs,u):l.budgetMs,c=kt(
+t,{...l,budgetMs:y},o?.rootPick,o?.report);if(c){let m=c.payload.type==="wall"?ys[e]:ds[e];return{payload:c.payload,label:m,score:c.score}}return Ao(t,r)}catch(i){return console.error("AI 计算异常，使用兜底",i),Ao(t,t.turn)}}var Fn={nodes:0,ttSize:0,depth:0,elapsedMs:0,qnodes:0,dcHits:0,dcMisses:0};function Et(){return{...Fn,dcHits:gt,dcMisses:xt}}return Gt(bs);})();
 
-  var AI_PROFILES = {
-    1: { name: '学徒', thinking: '学徒正在捡字……' },
-    2: { name: '排字师', thinking: '排字师正在排版……' },
-    3: { name: '总编', thinking: '总编正在审校……' },
-  };
-
-  /* —— 搜索核心（可变状态 + 距离场缓存） —— */
-  function makeCore(state) {
-    var N = state.size;
-    var W = N - 1;
-    var grids = E.buildWallGrids(state.walls, N);
-    var c = {
-      size: N, W: W,
-      h: grids.h, v: grids.v,
-      posA: { x: state.posA.x, y: state.posA.y },
-      posB: { x: state.posB.x, y: state.posB.y },
-      wallsA: state.wallsA, wallsB: state.wallsB,
-      dA: new Int16Array(MAX_CELLS), /* 到顶行（甲目标）距离场 */
-      dB: new Int16Array(MAX_CELLS), /* 到底行（乙目标）距离场 */
-    };
-    rebuildFields(c);
-    return c;
-  }
-
-  /* 反向 BFS：从目标线整行出发，得到每格到达该线的最短距离 */
-  function goalField(grids, goalY, N) {
-    var dist = new Int16Array(MAX_CELLS);
-    dist.fill(-1);
-    var queue = new Int16Array(MAX_CELLS);
-    var head = 0, tail = 0;
-    for (var x = 0; x < N; x++) {
-      var idx = goalY * N + x;
-      dist[idx] = 0;
-      queue[tail++] = idx;
-    }
-    while (head < tail) {
-      var cur = queue[head++];
-      var cx = cur % N;
-      var cy = (cur - cx) / N;
-      var d = dist[cur];
-      for (var i = 0; i < 4; i++) {
-        var dx = i === 3 ? 1 : i === 2 ? -1 : 0;
-        var dy = i === 1 ? 1 : i === 0 ? -1 : 0;
-        var nx = cx + dx;
-        var ny = cy + dy;
-        if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
-        if (E.edgeBlockedG(grids, cx, cy, dx, dy)) continue;
-        var ni = ny * N + nx;
-        if (dist[ni] >= 0) continue;
-        dist[ni] = d + 1;
-        queue[tail++] = ni;
-      }
-    }
-    return dist;
-  }
-
-  function rebuildFields(c) {
-    c.dA = goalField({ h: c.h, v: c.v, w: c.W }, 0, c.size);
-    c.dB = goalField({ h: c.h, v: c.v, w: c.W }, c.size - 1, c.size);
-  }
-
-  function coreDist(c, p) {
-    var N = c.size;
-    var pos = p === 'A' ? c.posA : c.posB;
-    var f = p === 'A' ? c.dA : c.dB;
-    return f[pos.y * N + pos.x];
-  }
-
-  /* 搜索内试放（含撤销）：只改核心，不动真实局面 */
-  function tryWall(c, x, y, o) {
-    var W = c.W;
-    var bit;
-    if (o === 'h') { bit = c.h[y * W + x]; c.h[y * W + x] = 1; }
-    else { bit = c.v[y * W + x]; c.v[y * W + x] = 1; }
-    var oldA = c.dA, oldB = c.dB;
-    rebuildFields(c);
-    return { x: x, y: y, o: o, bit: bit, oldA: oldA, oldB: oldB };
-  }
-
-  function undoWall(c, u) {
-    var W = c.W;
-    if (u.o === 'h') c.h[u.y * W + u.x] = u.bit;
-    else c.v[u.y * W + u.x] = u.bit;
-    c.dA = u.oldA;
-    c.dB = u.oldB;
-  }
-
-  function pawnMovesOf(c, p) {
-    var N = c.size;
-    var me = p === 'A' ? c.posA : c.posB;
-    var other = p === 'A' ? c.posB : c.posA;
-    var grids = { h: c.h, v: c.v, w: c.W };
-    var res = [];
-    var dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-    for (var k = 0; k < 4; k++) {
-      var dx = dirs[k][0], dy = dirs[k][1];
-      var nx = me.x + dx, ny = me.y + dy;
-      if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
-      if (E.edgeBlockedG(grids, me.x, me.y, dx, dy)) continue;
-      if (other.x === nx && other.y === ny) {
-        var jx = me.x + 2 * dx, jy = me.y + 2 * dy;
-        var inB = jx >= 0 && jx <= N - 1 && jy >= 0 && jy <= N - 1;
-        if (inB && !E.edgeBlockedG(grids, nx, ny, dx, dy) && !(other.x === jx && other.y === jy)) {
-          res.push({ x: jx, y: jy });
-          continue;
-        }
-        var perps = dx !== 0 ? [[0, -1], [0, 1]] : [[-1, 0], [1, 0]];
-        for (var q = 0; q < 2; q++) {
-          var sx = nx + perps[q][0], sy = ny + perps[q][1];
-          if (sx < 0 || sx > N - 1 || sy < 0 || sy > N - 1) continue;
-          if (E.edgeBlockedG(grids, nx, ny, perps[q][0], perps[q][1])) continue;
-          if (other.x === sx && other.y === sy) continue;
-          res.push({ x: sx, y: sy });
-        }
-      } else {
-        res.push({ x: nx, y: ny });
-      }
-    }
-    return res;
-  }
-
-  function countMoves(c, p) {
-    return pawnMovesOf(c, p).length;
-  }
-
-  /* —— 候选生成（窗口移植自 Web 版；probe=true 仅根节点做 BFS 增益探测） —— */
-  function genCands(c, p, wallLimit, probe) {
-    var N = c.size;
-    var W = c.W;
-    var me = p === 'A' ? c.posA : c.posB;
-    var op = p === 'A' ? c.posB : c.posA;
-    var grids = { h: c.h, v: c.v, w: W };
-    var myWalls = p === 'A' ? c.wallsA : c.wallsB;
-    var seen = {};
-    var walls = [];
-
-    function consider(x, y, o, base) {
-      if (myWalls <= 0) return;
-      if (x < 0 || x > N - 2 || y < 0 || y > N - 2) return;
-      var key = o + x + ',' + y;
-      if (seen[key]) {
-        return;
-      }
-      /* 冲突快查（重叠/交叉） */
-      if (o === 'h') {
-        if ((x >= 1 && c.h[y * W + x - 1]) || c.h[y * W + x] || (x + 1 <= W - 1 && c.h[y * W + x + 1]) || c.v[y * W + x]) return;
-      } else {
-        if ((y >= 1 && c.v[(y - 1) * W + x]) || c.v[y * W + x] || (y + 1 <= W - 1 && c.v[(y + 1) * W + x]) || c.h[y * W + x]) return;
-      }
-      seen[key] = true;
-      walls.push({ payload: { type: 'wall', wall: { x: x, y: y, o: o, by: p } }, score: base });
-    }
-
-    /* 对手周边窗口 */
-    for (var dx = -2; dx <= 2; dx++) {
-      for (var dy = -2; dy <= 2; dy++) {
-        var base = (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) ? 6 : 2;
-        consider(op.x + dx, op.y + dy, 'h', base);
-        consider(op.x + dx, op.y + dy, 'v', base);
-      }
-    }
-    /* 己方走廊自卫板 */
-    for (var d2 = -1; d2 <= 1; d2++) {
-      consider(me.x + d2, me.y - 2, 'h', 4);
-      consider(me.x + d2, me.y + 2, 'h', 4);
-    }
-    for (var d3 = -1; d3 <= 1; d3++) {
-      consider(me.x - 2, me.y + d3, 'v', 4);
-      consider(me.x + 2, me.y + d3, 'v', 4);
-    }
-    /* 对手终点行前沿 */
-    var opGoal = p === 'A' ? N - 1 : 0;
-    for (var d4 = -2; d4 <= 2; d4++) {
-      consider(op.x + d4, opGoal === 0 ? 0 : N - 2, 'h', 3);
-    }
-    /* 沿既有挡板端点延伸 */
-    for (var idx = 0; idx < W * W; idx++) {
-      if (c.h[idx]) {
-        var hy = (idx / W) | 0;
-        var hx = idx - hy * W;
-        consider(hx - 2, hy, 'h', 3);
-        consider(hx + 2, hy, 'h', 3);
-      }
-      if (c.v[idx]) {
-        var vy = (idx / W) | 0;
-        var vx = idx - vy * W;
-        consider(vx, vy - 2, 'v', 3);
-        consider(vx, vy + 2, 'v', 3);
-      }
-    }
-
-    /* 棋子着法：按推进收益排序 */
-    var myField = p === 'A' ? c.dA : c.dB;
-    var myD = coreDist(c, p);
-    var opD = coreDist(c, p === 'A' ? 'B' : 'A');
-    var pawnsCands = [];
-    var moves = pawnMovesOf(c, p);
-    for (var m = 0; m < moves.length; m++) {
-      var mv = moves[m];
-      var nd = myField[mv.y * N + mv.x];
-      var gain = (myD - nd) * 10 + (nd < 0 ? -50 : 0);
-      pawnsCands.push({ payload: { type: 'pawn', from: { x: me.x, y: me.y }, to: mv }, score: 20 + gain });
-    }
-    pawnsCands.sort(function (a, b) { return b.score - a.score; });
-
-    walls.sort(function (a, b) { return b.score - a.score; });
-    var wallCands;
-    if (probe) {
-      /* 根节点：BFS 增益探测——仅保留对手路径变长且不断路的板 */
-      var probed = [];
-      var kept = 0;
-      for (var wi = 0; wi < walls.length && kept < wallLimit; wi++) {
-        var wl = walls[wi].payload.wall;
-        var u = tryWall(c, wl.x, wl.y, wl.o);
-        var nOp = coreDist(c, p === 'A' ? 'B' : 'A');
-        var nMy = coreDist(c, p);
-        undoWall(c, u);
-        if (nOp < 0 || nMy < 0) continue; /* 断路板不入选 */
-        var cand = walls[wi];
-        cand.score = cand.score + (nOp - opD) * 6 - (nMy - myD) * 6;
-        probed.push(cand);
-        kept++;
-      }
-      wallCands = probed;
-    } else {
-      /* 内点：仅冲突快查（断路由评估的归责项惩罚），截断到上限 */
-      wallCands = walls.slice(0, wallLimit);
-    }
-    wallCands.sort(function (a, b) { return b.score - a.score; });
-
-    var all = wallCands.concat(pawnsCands);
-    all.sort(function (a, b) { return b.score - a.score; });
-    return all;
-  }
-
-  /* —— 评估（视角：me 一方） —— */
-  function collisionAdj(c, me, mover) {
-    var yA = c.posA.y, xA = c.posA.x, yB = c.posB.y, xB = c.posB.x;
-    if (xA !== xB || yA <= yB) return 0;
-    var d = yA - yB;
-    if (d < 2 || d > 6) return 0;
-    var grids = { h: c.h, v: c.v, w: c.W };
-    for (var y = yB; y < yA; y++) {
-      if (E.edgeBlockedG(grids, xA, y, 0, 1)) return 0;
-    }
-    var jumper = d % 2 === 1 ? mover : (mover === 'A' ? 'B' : 'A');
-    return jumper === me ? 2 : -2;
-  }
-
-  function forwardChoices(c, p, d) {
-    if (d <= 0) return 0;
-    var N = c.size;
-    var pos = p === 'A' ? c.posA : c.posB;
-    var f = p === 'A' ? c.dA : c.dB;
-    var grids = { h: c.h, v: c.v, w: c.W };
-    var cnt = 0;
-    var dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-    for (var i = 0; i < 4; i++) {
-      var nx = pos.x + dirs[i][0];
-      var ny = pos.y + dirs[i][1];
-      if (nx < 0 || nx > N - 1 || ny < 0 || ny > N - 1) continue;
-      if (E.edgeBlockedG(grids, pos.x, pos.y, dirs[i][0], dirs[i][1])) continue;
-      if (f[ny * N + nx] === d - 1) cnt++;
-    }
-    return cnt;
-  }
-
-  function evaluate(c, me, mover, lastWallBy, ply) {
-    var dA = coreDist(c, 'A');
-    var dB = coreDist(c, 'B');
-    if (dA === 0) return me === 'A' ? EVAL_WIN - ply : -(EVAL_WIN - ply);
-    if (dB === 0) return me === 'B' ? EVAL_WIN - ply : -(EVAL_WIN - ply);
-    if (dA < 0 || dB < 0) {
-      /* 断路：归罪最后放板者 */
-      return lastWallBy === me ? -(EVAL_WIN - ply) : EVAL_WIN - ply;
-    }
-    var myD = me === 'A' ? dA : dB;
-    var opD = me === 'A' ? dB : dA;
-    var myWalls = me === 'A' ? c.wallsA : c.wallsB;
-    var opWalls = me === 'A' ? c.wallsB : c.wallsA;
-    var mobMe = countMoves(c, me);
-    var mobOp = countMoves(c, me === 'A' ? 'B' : 'A');
-
-    var score = (opD - myD) + 0.3 * (myWalls - opWalls) + 0.1 * (mobMe - mobOp);
-    score += Math.min(myWalls * 0.45, 6) - Math.min(opWalls * 0.45, 6);
-    var pressMe = Math.min(myWalls, 10) * Math.min(opD, 12);
-    var pressOp = Math.min(opWalls, 10) * Math.min(myD, 12);
-    score += 0.04 * (pressMe - pressOp);
-    if (Math.abs(opD - myD) <= 2) score += mover === me ? 0.25 : -0.25;
-    score += collisionAdj(c, me, mover);
-    if (mobMe <= 3) score -= (4 - mobMe) * 0.5;
-    var fwdMe = Math.min(forwardChoices(c, me, myD), 3);
-    var fwdOp = Math.min(forwardChoices(c, me === 'A' ? 'B' : 'A', opD), 3);
-    score += 0.15 * (fwdMe - fwdOp);
-    return score;
-  }
-
-  /* 双方无板：纯竞速近似判胜（胜者真实到达层 = ply + 2×距离 −（胜者先手 ? 2 : 1）） */
-  function raceEval(c, me, mover, ply) {
-    var dA = coreDist(c, 'A');
-    var dB = coreDist(c, 'B');
-    if (dA === 0) return me === 'A' ? EVAL_WIN - ply + 1 : -(EVAL_WIN - ply + 1);
-    if (dB === 0) return me === 'B' ? EVAL_WIN - ply + 1 : -(EVAL_WIN - ply + 1);
-    var myD = me === 'A' ? dA : dB;
-    var opD = me === 'A' ? dB : dA;
-    var iWin = myD < opD || (myD === opD && mover === me);
-    var winner = iWin ? me : (me === 'A' ? 'B' : 'A');
-    var dW = iWin ? myD : opD;
-    var arrival = ply + 2 * dW - (mover === winner ? 2 : 1);
-    var val = EVAL_WIN - arrival;
-    return winner === me ? val : -val;
-  }
-
-  /* —— α-β 搜索（视点固定为 AI 一方） —— */
-  var _nodes = 0;
-  var _deadline = 0;
-  var _aborted = false;
-
-  function searchAB(c, me, turn, depth, alpha, beta, ply, lastWallBy, wallLimit) {
-    _nodes++;
-    if ((_nodes & 63) === 0 && G._now() > _deadline) {
-      _aborted = true;
-      return 0;
-    }
-    var mover = turn;
-    if (c.wallsA <= 0 && c.wallsB <= 0) {
-      return raceEval(c, me, mover, ply);
-    }
-    if (depth <= 0) {
-      return evaluate(c, me, mover, lastWallBy, ply);
-    }
-    var cands = genCands(c, turn, wallLimit, false);
-    if (cands.length === 0) return evaluate(c, me, mover, lastWallBy, ply);
-
-    var isMax = turn === me;
-    var best = isMax ? -Infinity : Infinity;
-    for (var i = 0; i < cands.length; i++) {
-      var payload = cands[i].payload;
-      var val;
-      if (payload.type === 'pawn') {
-        var posRef = turn === 'A' ? c.posA : c.posB;
-        var ox = posRef.x, oy = posRef.y;
-        posRef.x = payload.to.x;
-        posRef.y = payload.to.y;
-        val = searchAB(c, me, turn === 'A' ? 'B' : 'A', depth - 1, alpha, beta, ply + 1, lastWallBy, wallLimit);
-        posRef.x = ox;
-        posRef.y = oy;
-      } else {
-        var wl = payload.wall;
-        var u = tryWall(c, wl.x, wl.y, wl.o);
-        if (turn === 'A') c.wallsA--; else c.wallsB--;
-        val = searchAB(c, me, turn === 'A' ? 'B' : 'A', depth - 1, alpha, beta, ply + 1, turn, wallLimit);
-        undoWall(c, u);
-        if (turn === 'A') c.wallsA++; else c.wallsB++;
-      }
-      if (_aborted) return 0;
-      if (isMax) {
-        if (val > best) best = val;
-        if (best > alpha) alpha = best;
-      } else {
-        if (val < best) best = val;
-        if (best < beta) beta = best;
-      }
-      if (alpha >= beta) break;
-    }
-    return best;
-  }
-
-  /* —— 决策入口 —— */
-  /* state: 真实局面；me: AI 执子；level: 1|2|3
-   * 返回 { payload, label } 或 null（无合法着法——理论不会发生） */
-  function computeAiMove(state, me, level) {
-    var c = makeCore(state);
-    var wallLimit = level >= 3 ? 14 : level === 2 ? 10 : 6;
-    var maxDepth = level >= 3 ? 4 : level === 2 ? 2 : 1;
-    var timeCap = level >= 3 ? 700 : level === 2 ? 250 : 60;
-
-    var cands = genCands(c, me, wallLimit, true);
-    if (cands.length === 0) {
-      var fallback = pawnMovesOf(c, me);
-      if (fallback.length === 0) return null;
-      var fpos = me === 'A' ? c.posA : c.posB;
-      return { payload: { type: 'pawn', from: { x: fpos.x, y: fpos.y }, to: fallback[0] }, label: '' };
-    }
-
-    _nodes = 0;
-    _aborted = false;
-    _deadline = G._now() + timeCap;
-
-    var bestCand = null;
-    var bestScore = -Infinity;
-    /* 迭代加深（总编）：超时保底上一层结果 */
-    for (var depth = 1; depth <= maxDepth; depth++) {
-      var iterBest = null;
-      var iterScore = -Infinity;
-      var alpha = -Infinity;
-      var ok = true;
-      for (var i = 0; i < cands.length; i++) {
-        var payload = cands[i].payload;
-        var val;
-        if (payload.type === 'pawn') {
-          var posRef = me === 'A' ? c.posA : c.posB;
-          var ox = posRef.x, oy = posRef.y;
-          posRef.x = payload.to.x;
-          posRef.y = payload.to.y;
-          val = searchAB(c, me, me === 'A' ? 'B' : 'A', depth - 1, alpha, Infinity, 1, null, wallLimit);
-          posRef.x = ox;
-          posRef.y = oy;
-        } else {
-          var wl = payload.wall;
-          var u = tryWall(c, wl.x, wl.y, wl.o);
-          if (me === 'A') c.wallsA--; else c.wallsB--;
-          val = searchAB(c, me, me === 'A' ? 'B' : 'A', depth - 1, alpha, Infinity, 1, me, wallLimit);
-          undoWall(c, u);
-          if (me === 'A') c.wallsA++; else c.wallsB++;
-        }
-        if (_aborted) { ok = false; break; }
-        /* 学徒扰动：分数加 ±0.35 噪声，让低档位有活气 */
-        if (level === 1) val += (Math.random() - 0.5) * 0.7;
-        if (val > iterScore) {
-          iterScore = val;
-          iterBest = payload;
-        }
-        if (iterScore > alpha) alpha = iterScore;
-      }
-      if (ok && iterBest) {
-        bestCand = iterBest;
-        bestScore = iterScore;
-      }
-      if (_aborted || G._now() > _deadline) break;
-    }
-
-    if (!bestCand) bestCand = cands[0].payload;
-    var label = '';
-    if (bestCand.type === 'wall') {
-      label = '挡板 ' + E.cellName({ x: bestCand.wall.x, y: bestCand.wall.y }, state.size - 1) + (bestCand.wall.o === 'h' ? '横' : '竖');
-    } else {
-      label = E.PLAYER_CN[me] + ' 落子 ' + E.cellName(bestCand.to, state.size);
-    }
-    return { payload: bestCand, label: label, score: bestScore };
-  }
-
-  G.AI = {
-    computeAiMove: computeAiMove,
-    PROFILES: AI_PROFILES,
-  };
-})();
+(function(){ var G = window.AIGCUtils = window.AIGCUtils || {}; G.AiMod = QAi; })();

@@ -209,17 +209,41 @@ function toggleOrientation() {
 <script src="kwaiOpenApi/kwai-ad.js?v=3"></script>
 <script src="kwaiOpenApi/kwai-repost.js?v=3"></script>
 <script src="kwaiOpenApi/kwai-ui.js?v=3"></script>
+<script src="kwaiOpenApi/kwai-media.js?v=3"></script>
 <script src="kwaiOpenApi/kwai-render.js?v=3"></script>
 <script src="kwaiOpenApi/kwai-storage.js?v=3"></script>
 <!-- 在下方按依赖顺序追加业务 js 文件；kwaiStandard/main.js 保持最后 -->
-<script src="gameplay/play/engine.js?v=3"></script>
-<script src="gameplay/play/ai.js?v=3"></script>
-<script src="gameplay/render/ui.js?v=3"></script>
-<script src="gameplay/render/board.js?v=3"></script>
+<script src="gameplay/play/core.js?v=9"></script>
+<script src="gameplay/play/ai.js?v=9"></script>
+<script src="gameplay/render/theme.js?v=9"></script>
+<script src="gameplay/render/ui.js?v=9"></script>
+<script src="gameplay/render/page.js?v=9"></script>
+<script src="gameplay/render/board.js?v=9"></script>
 <script src="gameplay/render/gl.js?v=3"></script>
-<script src="gameplay/scene/home.js?v=3"></script>
-<script src="gameplay/scene/game.js?v=3"></script>
-<script src="gameplay/play/main.js?v=3"></script>
+<script src="gameplay/scene/cover.js?v=9"></script>
+<script src="gameplay/scene/toc.js?v=9"></script>
+<script src="gameplay/scene/setup.js?v=9"></script>
+<script src="gameplay/scene/game.js?v=9"></script>
+<script src="gameplay/scene/rules.js?v=9"></script>
+<script src="gameplay/scene/archive.js?v=9"></script>
+<script src="gameplay/play/main.js?v=9"></script>
+<script>
+/* 字体预加载（Web 端 FontFace 异步）→ 启动应用 */
+KwaiRender.preloadFonts([
+  { alias: "qserif",   path: "fonts/serif-sc-regular.ttf" },
+  { alias: "qserif-b", path: "fonts/serif-sc-bold.ttf" },
+  { alias: "qserif-x", path: "fonts/serif-sc-black.ttf" },
+  { alias: "qmono",    path: "fonts/plex-mono-regular.ttf" },
+  { alias: "qmono-b",  path: "fonts/plex-mono-bold.ttf" },
+  { alias: "qmono-i",  path: "fonts/plex-mono-italic.ttf" },
+  { alias: "qwest",    path: "fonts/playfair-regular.ttf" },
+  { alias: "qwest-x",  path: "fonts/playfair-black.ttf" },
+  { alias: "qwest-i",  path: "fonts/playfair-italic.ttf" },
+], function () {
+  AIGCUtils.Fonts.resolve();
+  AIGCUtils.Game.boot();
+});
+</script>
 <script src="kwaiStandard/main.js?v=3"></script>
 </body>
 </html>
