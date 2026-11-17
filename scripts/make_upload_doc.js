@@ -153,6 +153,10 @@ const doc = new Document({
       body("3. 上传交付包 zip（步步为营-yoola-交付包.zip），平台将自动替换 appid 与广告位 ID 并完成 CDN 化；", { noIndent: true }),
       body("4. 生成测试版本后真机验证：画面渲染、触摸走子与放板、激励视频回调、分享与存档恢复；", { noIndent: true }),
       body("5. 验证通过后提交审核。", { noIndent: true }),
+
+      h1("六、Web 版体验地址（备用）"),
+      body("https://d1n1c9rzwhe0-d.space.zhipuaidemo.cn", { bold: true, noIndent: true }),
+      note("该地址为《步步为营》Web 版发布页（同玩法、同视觉），可用于站外推广、快速体验与自测。Yoola 交付包本身不含也不需要任何外部链接：快手侧代码禁止联网，所有资源由平台在上传阶段统一 CDN 化；若平台创建页出现「体验地址 / 访问链接」等表单项，可填入此地址。"),
     ],
   }],
 });
