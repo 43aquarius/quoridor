@@ -233,6 +233,7 @@
     if (sc && sc.enter) sc.enter();
     App.requestRedraw();
   };
+  App.savePrefs = savePrefs;
 
   App.pushUndo = function () {
     App.undoStack.push(App.state);
@@ -269,15 +270,21 @@
   var isKS = (typeof ks !== 'undefined');
 
   App.requestRedraw = function () { inputDirty = true; };
+  /* 全局提示条 */
+  App.showToast = function (text, ms) {
+    App.toast = { text: text, until: Date.now() + (ms || 2200) };
+    App.requestRedraw();
+  };
 
   function animActive() {
     var g = G.Scenes.game;
-    if (App.scene === 'game' && g) return g.animActive();
+    if (App.scene === 'game' && g) return g.animActive() || !!(App.toast && Date.now() < App.toast.until);
     if (App.scene === 'cover') return true; /* 封面呼吸 */
+    if (App.toast && Date.now() < App.toast.until) return true;
     return false;
   }
 
-  /* 纸面颗粒（细网点） */
+  /* 纸面颗粒（与 Web 版 .noise-overlay 同等强度：opacity 0.075 的微噪点） */
   var grainPattern = null;
   function drawPaper(ctx) {
     var L = G.Layout;
@@ -285,17 +292,20 @@
     ctx.fillRect(0, 0, L.w + 4, L.h + 4);
     /* 颗粒：预渲染到小离屏画布再平铺（性能） */
     if (!grainPattern) {
-      var gc = window.KwaiRender.createOffscreenCanvas(44, 44);
+      var gc = window.KwaiRender.createOffscreenCanvas(64, 64);
       var gctx = gc.getContext('2d');
-      gctx.fillStyle = 'rgba(26,26,26,0.05)';
-      for (var i = 0; i < 26; i++) {
-        gctx.fillRect(Math.random() * 44, Math.random() * 44, 1.3, 1.3);
+      gctx.fillStyle = 'rgba(26,26,26,0.10)';
+      for (var i = 0; i < 20; i++) {
+        gctx.fillRect(Math.random() * 64, Math.random() * 64, 1, 1);
       }
       grainPattern = ctx.createPattern(gc, 'repeat');
     }
     if (grainPattern) {
+      ctx.save();
+      ctx.globalAlpha = 0.32;
       ctx.fillStyle = grainPattern;
       ctx.fillRect(0, 0, L.w + 4, L.h + 4);
+      ctx.restore();
     }
   }
 
@@ -305,6 +315,19 @@
     drawPaper(ctx);
     var sc = G.Scenes[App.scene] || G.Scenes.cover;
     if (sc) sc.draw(ctx);
+    /* 全局提示条（居任何场景之上，如「不支持外链」） */
+    if (App.toast && Date.now() < App.toast.until) {
+      var alpha = Math.min(1, (App.toast.until - Date.now()) / 400);
+      ctx.globalAlpha = alpha;
+      var U = G.UI;
+      var tw = U.trackedWidth(ctx, App.toast.text, 11, 'serif', false, 1) + 28;
+      var tx0 = (G.Layout.w - tw) / 2;
+      var ty0 = Math.max(G.Layout.safeTop, 14) + 44;
+      ctx.fillStyle = G.Theme.ink;
+      ctx.fillRect(tx0, ty0, tw, 30);
+      U.text(ctx, App.toast.text, G.Layout.w / 2, ty0 + 19, 11, G.Theme.paper, 'serif', false, 'center');
+      ctx.globalAlpha = 1;
+    } else if (App.toast) App.toast = null;
   }
 
   function frame(gl) {
@@ -348,7 +371,7 @@
     if (!p) return;
     downPt = p;
     var sc = currentScene();
-    if (sc && sc.press) sc.press(p.x, p.y);
+    if (sc && sc.press) safeCall('press', function () { sc.press(p.x, p.y); });
     App.requestRedraw();
   }
   function onMove(e) {
@@ -357,7 +380,7 @@
     if (!p) return;
 
     var sc = currentScene();
-    if (sc && sc.drag) sc.drag(p.x, p.y);
+    if (sc && sc.drag) safeCall('drag', function () { sc.drag(p.x, p.y); });
     App.requestRedraw();
   }
   function onEnd(e) {
@@ -367,8 +390,10 @@
 
     var sc = currentScene();
     if (sc && sc.release) {
-      var kind = sc.release(p.x, p.y);
-      if (kind === 'drag' && downPt) { /* 滚动结束，非点按 */ }
+      safeCall('release', function () {
+        var kind = sc.release(p.x, p.y);
+        if (kind === 'drag' && downPt) { /* 滚动结束，非点按 */ }
+      });
     }
     downPt = null;
     App.requestRedraw();
@@ -403,12 +428,23 @@
     console.log('[Quoridor] boot ok scene=' + App.scene + ' save=' + (App.saveExists ? 'yes' : 'no'));
   }
 
+  /* 输入与绘制的异常隔离：单次异常只记一次日志，绝不拖垮帧循环 */
+  var errLogged = {};
+  function safeCall(tag, fn) {
+    try { fn(); } catch (e) {
+      if (!errLogged[tag]) {
+        errLogged[tag] = true;
+        try { console.error('[Quoridor] ' + tag + ' error:', e && e.message, e && e.stack ? String(e.stack).split('\n')[1] : ''); } catch (e2) {}
+      }
+    }
+  }
+
   function loop() {
     G.GLBridge.lazyInstall();
     bindInput();
-    frame(G.GLBridge.raw());
+    safeCall('frame', function () { frame(G.GLBridge.raw()); });
     if (G.GLBridge.patchFailed()) {
-      setTimeout(function () { frame(G.GLBridge.raw()); }, 0);
+      setTimeout(function () { safeCall('frame-retry', function () { frame(G.GLBridge.raw()); }); }, 0);
     }
     requestAnimationFrame(loop);
   }

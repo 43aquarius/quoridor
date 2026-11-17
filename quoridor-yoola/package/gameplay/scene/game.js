@@ -64,60 +64,54 @@
     lo.statusY = Math.max(L.safeTop, 14) + 16 * s;
     var y = lo.statusY + 26 * s;
 
-    /* 标题区 */
+    /* 章头（Web GameView header：对 局 + 模式 + 规格徽标 + 第 N 手，border-b-2） */
     lo.headY = y;
-    y += 84 * s;
+    y += 74 * s;
 
-    /* 棋盘 */
+    /* 棋盘（Web max-w min(94vw,72vh,640px) 居中） */
     var boardW = Math.min(cw + 8 * s, 420 * s);
     lo.board = B.metrics(App.state ? App.state.size : 9, boardW, (W - boardW) / 2, y);
-    y += boardW + 14 * s;
+    y += boardW + 16 * s;
     lo.hintY = y;
     y += 20 * s;
 
-    /* 对局状态卡 */
+    /* 对局状态卡（Web Sidebar 1:1） */
     lo.status = { x: pad, y: y, w: cw, h: 0 };
     var four = App.state && App.state.playerCount === 4;
     var rows = four ? 4 : 2;
     lo.playerRows = [];
     var order = four ? ['A', 'C', 'B', 'D'] : ['A', 'B'];
     for (var i = 0; i < rows; i++) {
-      lo.playerRows.push({ x: pad + 10 * s, y: y + 36 * s + i * (86 * s + 8 * s), w: cw - 20 * s, h: 86 * s, p: order[i] });
+      lo.playerRows.push({ x: pad + 16 * s, y: y + 46 * s + i * (92 * s + 10 * s), w: cw - 32 * s, h: 92 * s, p: order[i] });
     }
-    y += 36 * s + rows * (86 * s + 8 * s) + 8 * s;
+    y += 46 * s + rows * (92 * s + 10 * s);
+    /* 本手用时行（dashed 顶线） */
+    lo.moveLblY = y + 14 * s;
+    lo.moveTimeY = lo.moveLblY + 34 * s;
+    y = lo.moveTimeY + 26 * s;
     lo.status.h = y - lo.status.y;
-    y += 22 * s;
+    y += 20 * s;
 
-    /* 本手用时 */
-    lo.moveLblY = y;
-    lo.moveTimeY = y + 44 * s;
-    y += 64 * s;
-
-    /* 着法记录 */
+    /* 着法记录卡 */
     lo.record = { x: pad, y: y, w: cw, h: 168 * s };
-    y += lo.record.h + 24 * s;
+    y += lo.record.h + 16 * s;
 
-    /* 按钮行 */
+    /* 按钮行（Web：outline 三枚带图标 + ghost ← 目录；图标左、文字右起，窄钮收紧字距防溢出） */
     var bw = (cw - 3 * 8 * s) / 4;
     lo.btns = [
-      { x: pad, y: y, w: bw, h: 40 * s, label: '悔棋 UNDO', track: true, fontSize: 9.5 * s, key: 'undo' },
-      { x: pad + (bw + 8 * s), y: y, w: bw, h: 40 * s, label: '认输 RESIGN', track: true, fontSize: 9.5 * s, key: 'resign' },
-      { x: pad + (bw + 8 * s) * 2, y: y, w: bw, h: 40 * s, label: App.soundOn ? '音效 ON' : '音效 OFF', track: true, fontSize: 9.5 * s, key: 'sound', selected: App.soundOn },
-      { x: pad + (bw + 8 * s) * 3, y: y, w: bw, h: 40 * s, label: '← 目录', track: true, fontSize: 9.5 * s, key: 'toc' },
+      { x: pad, y: y, w: bw, h: 36 * s, label: '悔棋 UNDO', track: true, fontSize: 9 * s, spacing: 0.5 * s, key: 'undo' },
+      { x: pad + (bw + 8 * s), y: y, w: bw, h: 36 * s, label: '认输 RESIGN', track: true, fontSize: 9 * s, spacing: 0.4 * s, key: 'resign' },
+      { x: pad + (bw + 8 * s) * 2, y: y, w: bw, h: 36 * s, label: '音效', track: true, fontSize: 9 * s, key: 'sound' },
+      { x: pad + (bw + 8 * s) * 3, y: y, w: bw, h: 36 * s, label: '← 目录', track: true, fontSize: 9 * s, key: 'toc', ghost: true },
     ];
-    y += 40 * s + 24 * s;
+    y += 36 * s + 20 * s;
 
-    /* 色版条 */
+    /* 底部：色版胶片条（2p）/ 四人局注（4p，Web dashed 顶线段落） */
     lo.palY = y;
-    var swatchW = 56 * s, swatchH = 40 * s;
-    lo._swatches = [];
-    for (var si = 0; si < T.skins.length; si++) {
-      var sx = pad + si * (swatchW + 10 * s);
-      lo._swatches.push({ x: sx, y: lo.palY + 18 * s, w: swatchW, h: swatchH + 16 * s, i: si });
-    }
-    y = lo.palY + 18 * s + swatchH + 30 * s;
+    lo.filmX = pad;
+    y += 108 * s;
 
-    lo.contentH = y + 14 * s;
+    lo.contentH = y + 16 * s;
     return lo;
   }
   function contentH() { return layout().contentH; }
@@ -132,6 +126,9 @@
     strike = null; toast = null;
     if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
     aiThinking = false;
+    /* 归途峰值（Web meta.maxPathX：随每手更新） */
+    maxPath = { A: 0, B: 0, C: 0, D: 0 };
+    refreshMaxPath();
     /* 棋钟 */
     var App = G.App;
     if (resume && App.resumeTotals) {
@@ -145,6 +142,19 @@
       maybeAiMove();
     } else if (App.state && App.state.winner) {
       resultShown = true;
+    }
+  }
+
+  /* 归途峰值：当前距离与历史最大 */
+  var maxPath = { A: 0, B: 0, C: 0, D: 0 };
+  function refreshMaxPath() {
+    var st = G.App.state;
+    if (!st) return;
+    var order = st.playerCount === 4 ? ['A', 'C', 'B', 'D'] : ['A', 'B'];
+    for (var i = 0; i < order.length; i++) {
+      var p = order[i];
+      var d = C.shortestPathLength(st, p);
+      if (d != null && d > maxPath[p]) maxPath[p] = d;
     }
   }
 
@@ -214,6 +224,7 @@
     if (r.state.winner) {
       onGameOver();
     } else {
+      refreshMaxPath();
       refreshLegal();
       maybeAiMove();
       App.saveGame();
@@ -256,6 +267,7 @@
         turnStart = Date.now();
         if (r.state.winner) onGameOver();
         else {
+          refreshMaxPath();
           refreshLegal();
           /* 4P 连续 AI 席位继续推进 */
           if (!isHumanTurn()) maybeAiMove();
@@ -362,6 +374,9 @@
       humanWon: App.mode === 'ai' && st.winner === humanSeat(),
       notations: (st.history || []).slice(-80).map(function (m) { return m.notation || ''; }),
       archived: false,
+      aiLevel: App.aiLevel,
+      humanSeat: humanSeat(),
+      aiName: App.aiLevel ? G.Core.AI_PROFILES[App.aiLevel].name : null,
     };
     /* 快手分享：胜利后注册战绩文案 */
     if (window.KwaiRepost && window.KwaiRepost.registerSystemShare) {
@@ -383,29 +398,29 @@
     var s = lo.S;
     if (!st) return;
 
-    U.statusBar(ctx, lo.W, lo.statusY, modeLabel());
+    U.statusBar(ctx, lo.W, lo.statusY);
 
     ctx.save();
     ctx.translate(0, -pg.scroll);
 
-    /* 标题区 */
-    U.text(ctx, '对', lo.pad, lo.headY + 24 * s, 26 * s, T.ink, 'serifX', true);
-    U.text(ctx, '局', lo.pad, lo.headY + 52 * s, 26 * s, T.ink, 'serifX', true);
-    var meta1 = metaLine1();
-    var m1lines = U.wrap(ctx, meta1, lo.W - lo.pad * 2 - 130 * s, 11 * s, 'mono');
-    for (var ml = 0; ml < m1lines.length && ml < 2; ml++) {
-      U.text(ctx, m1lines[ml], lo.pad + 44 * s, lo.headY + 18 * s + ml * 16 * s, 11 * s, 'rgba(26,26,26,0.6)', 'mono');
+    /* 章头（Web：对 局 + 模式 + 规格徽标（宽足才画）；右 第 N 手；border-b-2） */
+    U.text(ctx, '对 局', lo.pad, lo.headY + 28 * s, 24 * s, T.ink, 'serifX');
+    var hx = lo.pad + 68 * s;
+    var mlab = modeLabel();
+    var mW = U.trackedWidth(ctx, mlab, 10 * s, 'mono', false, 1 * s);
+    U.tracked(ctx, mlab, hx, lo.headY + 28 * s, 10 * s, 'rgba(26,26,26,0.5)', 'mono', false, 1 * s);
+    /* 规格徽标（border ink/45 小框；右侧空间不足则省略） */
+    var cfg = configLabel(st);
+    var bw2 = U.trackedWidth(ctx, cfg, 10 * s, 'mono', false, 0.5 * s) + 16 * s;
+    var bx2 = hx + mW + 12 * s;
+    var handW = U.trackedWidth(ctx, '第 99 手', 10 * s, 'mono', false, 1 * s) + 20 * s;
+    if (bx2 + bw2 <= lo.W - lo.pad - handW) {
+      ctx.strokeStyle = 'rgba(26,26,26,0.45)'; ctx.lineWidth = 1;
+      ctx.strokeRect(bx2, lo.headY + 16 * s, bw2, 18 * s);
+      U.tracked(ctx, cfg, bx2 + 8 * s, lo.headY + 28.5 * s, 10 * s, 'rgba(26,26,26,0.6)', 'mono', false, 0.5 * s);
     }
-    /* 信息胶囊 */
-    var capW = 120 * s;
-    var cap = { x: lo.W - lo.pad - capW, y: lo.headY + 4 * s, w: capW, h: 40 * s };
-    ctx.strokeStyle = T.ink; ctx.lineWidth = 1.5;
-    ctx.strokeRect(cap.x, cap.y, cap.w, cap.h);
-    var capTxt = st.size + '×' + st.size + ' · ' + st.wallsStart + '板';
-    U.text(ctx, capTxt, cap.x + cap.w / 2, cap.y + 15 * s, 9.5 * s, T.ink, 'mono', false, 'center');
-    U.text(ctx, st.playerCount === 4 ? '四人局' : '二人局', cap.x + cap.w / 2, cap.y + 30 * s, 9.5 * s, T.ink, 'mono', false, 'center');
-    U.tracked(ctx, '第 ' + (st.history.length + 1) + ' 手', lo.pad, lo.headY + 72 * s, 10 * s, 'rgba(26,26,26,0.55)', 'mono', false, 1.5 * s);
-    U.hline(ctx, lo.pad, lo.headY + 80 * s, lo.cw, 'rgba(26,26,26,0.25)', 1);
+    U.tracked(ctx, '第 ' + Math.max(1, st.history.length + (st.winner ? 0 : 1)) + ' 手', lo.W - lo.pad, lo.headY + 28 * s, 10 * s, 'rgba(26,26,26,0.5)', 'mono', false, 1 * s, 'right');
+    U.hline(ctx, lo.pad, lo.headY + 44 * s, lo.cw, T.ink, 2);
 
     /* 棋盘 */
     var lastMove = lastMoveOf(st);
@@ -437,88 +452,97 @@
       ctx.stroke();
       ctx.lineCap = 'butt';
     }
-    /* 棋盘提示 */
-    var hint = isHumanTurn() && !touchWall ? '点击格线附近选板位 · 点击棋格行棋' : '';
-    if (aiThinking) hint = C.AI_PROFILES[aiLevelFor()].thinking;
-    if (st.winner) hint = '对局已收笔';
-    U.text(ctx, hint, lo.W / 2, lo.hintY, 10 * s, 'rgba(26,26,26,0.45)', 'mono', false, 'center');
+    /* 棋盘提示（Web touch-only 提示行） */
+    var hint = isHumanTurn() && !touchWall && !st.winner ? '点击格线附近选板位 · 点击棋格行棋' : '';
+    if (st.winner) hint = '';
+    if (hint) U.text(ctx, hint, lo.W / 2, lo.hintY, 10 * s, 'rgba(26,26,26,0.45)', 'mono', false, 'center');
 
-    /* 对局状态卡 */
-    U.card(ctx, lo.status, { shadow: false });
-    U.tracked(ctx, '对局状态 STATUS', lo.status.x + 12 * s, lo.status.y + 20 * s, 9.5 * s, 'rgba(26,26,26,0.55)', 'mono', false, 1.2 * s);
-    U.text(ctx, st.size + '×' + st.size + ' · ' + st.wallsStart + '板 · 第 ' + (st.history.length + 1) + ' 手',
-      lo.status.x + lo.status.w - 12 * s, lo.status.y + 20 * s, 9 * s, 'rgba(26,26,26,0.5)', 'mono', false, 'right');
+    /* 对局状态卡（Web Sidebar section 1:1） */
+    ctx.strokeStyle = 'rgba(26,26,26,0.4)'; ctx.lineWidth = 1;
+    ctx.strokeRect(lo.status.x, lo.status.y, lo.status.w, lo.status.h);
+    U.tracked(ctx, '对局状态 STATUS', lo.status.x + 16 * s, lo.status.y + 20 * s, 10 * s, 'rgba(26,26,26,0.55)', 'mono', false, 3 * s);
+    var headRight = st.size + '×' + st.size + ' · ' + st.wallsStart + '板' + (st.playerCount === 4 ? ' · 四人围坐' : '');
+    var tc2 = App.timeControl();
+    if (tc2.totalSec > 0 || tc2.perMoveSec > 0) headRight += ' · ' + clkText(tc2);
+    headRight += ' · 第 ' + Math.max(1, st.history.length + (st.winner ? 0 : 1)) + ' 手';
+    U.text(ctx, headRight, lo.status.x + lo.status.w - 16 * s, lo.status.y + 20 * s, 10 * s, 'rgba(26,26,26,0.4)', 'mono', false, 'right');
+    U.hline(ctx, lo.status.x, lo.status.y + 30 * s, lo.status.w, 'rgba(26,26,26,0.25)', 1);
     for (var ri = 0; ri < lo.playerRows.length; ri++) {
       drawPlayerRow(ctx, lo.playerRows[ri], s);
     }
-
-    /* 本手用时 */
-    U.tracked(ctx, '本手用时 MOVE', lo.pad, lo.moveLblY, 9.5 * s, T.light, 'mono', false, 1.5 * s);
+    /* 本手用时（dashed 顶线 + 大号时钟 + 右侧状态列） */
+    U.hline(ctx, lo.status.x + 16 * s, lo.moveLblY - 16 * s, lo.status.w - 32 * s, 'rgba(26,26,26,0.3)', 1, [4 * s, 3 * s]);
+    U.tracked(ctx, '本手用时 MOVE' + (tc2.perMoveSec > 0 ? ' ⏱' : ''), lo.status.x + 16 * s, lo.moveLblY, 10 * s, 'rgba(26,26,26,0.5)', 'mono', false, 2.5 * s);
     var moveMs = st.winner ? 0 : (Date.now() - turnStart);
-    U.text(ctx, fmtClock(moveMs), lo.pad, lo.moveTimeY, 36 * s, T.ink, 'mono', true);
+    var clockColor = T.ink;
+    if (tc2.perMoveSec > 0 && !st.winner) {
+      var leftSec = Math.max(0, Math.ceil((tc2.perMoveSec * 1000 - moveMs) / 1000));
+      moveMs = leftSec * 1000;
+      if (leftSec <= 10) clockColor = T.risoRed;
+    }
+    U.text(ctx, fmtClock(moveMs), lo.status.x + 16 * s, lo.moveTimeY, 30 * s, st.winner ? 'rgba(26,26,26,0.35)' : clockColor, 'mono', true);
     var turnTxt = '';
-    if (st.winner) turnTxt = '已收笔';
-    else if (aiThinking) turnTxt = '思考中……';
-    else turnTxt = '轮到' + T.playerName(st.turn) + (isHumanTurn() ? ' 落子' : '（AI）');
-    U.text(ctx, turnTxt, lo.W - lo.pad, lo.moveTimeY, 11 * s, 'rgba(26,26,26,0.55)', 'serif', false, 'right');
+    var turnCol = 'rgba(26,26,26,0.6)';
+    if (aiThinking) { turnTxt = C.AI_PROFILES[aiLevelFor()].thinking; turnCol = T.qa; }
+    else if (st.winner) turnTxt = winLine();
+    else turnTxt = '轮到' + T.playerName(st.turn) + (isHumanTurn() ? '落子' : '落子');
+    U.text(ctx, turnTxt, lo.status.x + lo.status.w - 16 * s, lo.moveTimeY, 11 * s, turnCol, 'mono', false, 'right');
 
-    /* 着法记录 */
-    U.card(ctx, lo.record, { shadow: false });
-    U.tracked(ctx, '着法记录 RECORD', lo.record.x + 12 * s, lo.record.y + 20 * s, 9.5 * s, 'rgba(26,26,26,0.55)', 'mono', false, 1.2 * s);
-    U.text(ctx, st.history.length + ' 着', lo.record.x + lo.record.w - 12 * s, lo.record.y + 20 * s, 9.5 * s, 'rgba(26,26,26,0.5)', 'mono', false, 'right');
+    /* 着法记录（Web Sidebar record 1:1：[NN 甲 记谱 用时] 行） */
+    ctx.strokeStyle = 'rgba(26,26,26,0.4)'; ctx.lineWidth = 1;
+    ctx.strokeRect(lo.record.x, lo.record.y, lo.record.w, lo.record.h);
+    U.tracked(ctx, '着法记录 RECORD', lo.record.x + 16 * s, lo.record.y + 20 * s, 10 * s, 'rgba(26,26,26,0.55)', 'mono', false, 3 * s);
+    U.text(ctx, st.history.length + ' 着', lo.record.x + lo.record.w - 16 * s, lo.record.y + 20 * s, 10 * s, 'rgba(26,26,26,0.4)', 'mono', false, 'right');
+    U.hline(ctx, lo.record.x, lo.record.y + 30 * s, lo.record.w, 'rgba(26,26,26,0.25)', 1);
     var hist = st.history || [];
     if (!hist.length) {
-      U.text(ctx, '—— 白纸一张，落第一着 ——', lo.record.x + lo.record.w / 2, lo.record.y + lo.record.h / 2 + 12 * s, 12 * s, 'rgba(26,26,26,0.5)', 'serif', false, 'center');
+      U.text(ctx, '—— 白纸一张，落第一着 ——', lo.record.x + lo.record.w / 2, lo.record.y + lo.record.h / 2 + 10 * s, 11 * s, 'rgba(26,26,26,0.4)', 'mono', false, 'center');
     } else {
-      /* 最近 6 手，两列 */
-      var recent = hist.slice(-6);
-      var colW = (lo.record.w - 24 * s) / 2;
-      for (var hi = 0; hi < recent.length; hi++) {
-        var mv = recent[hi];
-        var col = hi % 2, rowI = Math.floor(hi / 2);
-        var rx = lo.record.x + 12 * s + col * colW;
-        var ry = lo.record.y + 40 * s + rowI * 20 * s;
-        var label = mv.notation || '';
-        U.text(ctx, label, rx, ry, 10.5 * s, T.ink, 'mono');
+      var maxRows = Math.floor((lo.record.h - 44 * s) / 20 * s);
+      var showN = Math.min(hist.length, Math.floor((lo.record.h - 44 * s) / (20 * s)));
+      var start = hist.length - showN;
+      if (start > 0 && showN > 0) start += 0;
+      var ry2 = lo.record.y + 48 * s;
+      for (var hi = start; hi < hist.length; hi++) {
+        var mv = hist[hi];
+        var rowY = ry2 + (hi - start) * 20 * s;
+        if (rowY > lo.record.y + lo.record.h - 10 * s) break;
+        var plCol = T.playerColor(mv.player);
+        U.text(ctx, String(mv.n).length < 2 ? '0' + mv.n : '' + mv.n, lo.record.x + 18 * s, rowY, 11 * s, 'rgba(26,26,26,0.5)', 'mono');
+        U.text(ctx, T.playerName(mv.player), lo.record.x + 48 * s, rowY, 11 * s, plCol, 'mono', true);
+        U.text(ctx, mv.notation || '', lo.record.x + 70 * s, rowY, 12 * s, plCol, 'mono');
+        U.text(ctx, fmtShort(mv.elapsedMs || 0), lo.record.x + lo.record.w - 16 * s, rowY, 10 * s, 'rgba(26,26,26,0.4)', 'mono', false, 'right');
       }
-      if (hist.length > 6) {
-        U.text(ctx, '…… 前 ' + (hist.length - 6) + ' 着见档案馆', lo.record.x + 12 * s, lo.record.y + lo.record.h - 12 * s, 9 * s, 'rgba(26,26,26,0.45)', 'mono');
+      if (start > 0) {
+        U.text(ctx, '…… 前 ' + start + ' 着见档案馆', lo.record.x + 18 * s, lo.record.y + lo.record.h - 12 * s, 9 * s, 'rgba(26,26,26,0.45)', 'mono');
       }
     }
 
-    /* 按钮行 */
+    /* 按钮行（Web：outline 三枚带图标 + ghost ← 目录；图标左、文字右起） */
     for (var bi = 0; bi < lo.btns.length; bi++) {
       var bt = lo.btns[bi];
-      bt.disabled = bt.key === 'undo' && (App.undosLeft <= 0 || !App.undoStack.length);
-      if (bt.key === 'sound') { bt.label = App.soundOn ? '音效 ON' : '音效 OFF'; bt.selected = false; }
-      U.button(ctx, bt, pressed['btn' + bt.key]);
-    }
-
-    /* 色版条 */
-    U.tracked(ctx, '套印色版 RISO PALETTE', lo.pad, lo.palY + 10 * s, 9.5 * s, T.light, 'mono', false, 1.5 * s);
-    if (st.playerCount === 4) {
-      U.text(ctx, '四人局四色套印已钉死', lo.W - lo.pad, lo.palY + 10 * s, 9.5 * s, 'rgba(26,26,26,0.5)', 'serif', false, 'right');
-    } else {
-      for (var si = 0; si < lo._swatches.length; si++) {
-        var sw = lo._swatches[si];
-        var sk = T.skins[sw.i];
-        var selp = App.skin === sw.i;
-        ctx.fillStyle = sk.qa;
-        ctx.fillRect(sw.x, sw.y, sw.w / 2, sw.h - 16 * s);
-        ctx.fillStyle = sk.qb;
-        ctx.fillRect(sw.x + sw.w / 2, sw.y, sw.w / 2, sw.h - 16 * s);
-        ctx.fillStyle = T.ink;
-        for (var th = 0; th < 4; th++) ctx.fillRect(sw.x + th * (sw.w / 4) + 1, sw.y - 3 * s, sw.w / 4 - 3, 2.5);
-        ctx.strokeStyle = selp ? T.ink : 'rgba(26,26,26,0.4)';
-        ctx.lineWidth = selp ? 2.5 : 1.2;
-        ctx.strokeRect(sw.x, sw.y, sw.w, sw.h - 16 * s);
-        U.text(ctx, sk.label, sw.x + sw.w / 2, sw.y + sw.h - 4 * s, 9 * s, selp ? T.ink : 'rgba(26,26,26,0.55)', 'serifB', selp, 'center');
+      bt.disabled = bt.key === 'undo' && (App.undosLeft <= 0 || !App.undoStack.length) || (bt.key === 'resign' && !!st.winner);
+      if (bt.ghost) U.ghostButton(ctx, bt, pressed['btn' + bt.key]);
+      else {
+        bt.labelX = bt.x + 24 * s;
+        U.button(ctx, bt, pressed['btn' + bt.key]);
+        drawBtnIcon(ctx, bt, s);
       }
     }
 
-    U.nBadge(ctx, 14 * s + 14 * s, G.Layout.h - 14 * s - 14 * s, 14 * s);
-    ctx.restore();
+    /* 底部：色版胶片条 / 四人局注（Web border-t dashed pt-4） */
+    if (st.playerCount === 4) {
+      U.hline(ctx, lo.pad, lo.palY, lo.cw, 'rgba(26,26,26,0.35)', 1, [5 * s, 4 * s]);
+      var qnote = '四人围坐 · 四色套印已钉死（红/蓝/苔绿/墨黑）· 顺时针行棋 甲→丙→乙→丁 · 出局制：认输/超时/离席踰时即出局，仅存一席时末位胜';
+      var ql = U.wrap(ctx, qnote, lo.cw, 9 * s, 'mono');
+      for (var qi = 0; qi < ql.length && qi < 3; qi++) {
+        U.text(ctx, ql[qi], lo.pad, lo.palY + 18 * s + qi * 14 * s, 9 * s, 'rgba(26,26,26,0.4)', 'mono');
+      }
+    } else {
+      U.filmStrip(ctx, lo.filmX, lo.palY, s);
+    }
 
+    ctx.restore();
     Page.indicator(ctx, pg);
 
     /* 固定浮层：放板浮条 / 认输弹层 / 结算 / 提示条 */
@@ -537,6 +561,38 @@
     } else toast = null;
   }
 
+  /* 按钮小图标（Web Undo2 / Flag / Volume2 线稿） */
+  function drawBtnIcon(ctx, bt, s) {
+    var fg = bt.disabled ? 'rgba(26,26,26,0.35)' : T.ink;
+    var ix = bt.x + 12 * s, iy = bt.y + bt.h / 2;
+    ctx.strokeStyle = fg; ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    if (bt.key === 'undo') {
+      ctx.arc(ix + 4 * s, iy, 5 * s, Math.PI * 0.5, Math.PI * 1.85);
+      ctx.moveTo(ix + 4 * s + 5 * s, iy - 4.5 * s);
+      ctx.lineTo(ix + 4 * s + 5.8 * s, iy - 0.6 * s);
+      ctx.lineTo(ix + 4 * s + 2.2 * s, iy - 0.2 * s);
+    } else if (bt.key === 'resign') {
+      ctx.moveTo(ix, iy - 6 * s);
+      ctx.lineTo(ix, iy + 6 * s);
+      ctx.moveTo(ix, iy - 6 * s);
+      ctx.lineTo(ix + 8 * s, iy - 4 * s);
+      ctx.lineTo(ix, iy - 2 * s);
+    } else if (bt.key === 'sound') {
+      ctx.moveTo(ix, iy - 3 * s); ctx.lineTo(ix + 3 * s, iy - 3 * s);
+      ctx.lineTo(ix + 6 * s, iy - 6 * s); ctx.lineTo(ix + 6 * s, iy + 6 * s);
+      ctx.lineTo(ix + 3 * s, iy + 3 * s); ctx.lineTo(ix, iy + 3 * s);
+      ctx.closePath();
+      if (G.App.soundOn) {
+        ctx.moveTo(ix + 9 * s, iy - 2.5 * s);
+        ctx.arc(ix + 8.5 * s, iy, 2.5 * s, -Math.PI / 2.6, Math.PI / 2.6);
+      }
+    }
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+  }
+
+  /* 玩家行（Web Sidebar playerBlock 1:1） */
   function drawPlayerRow(ctx, row, s) {
     var App = G.App;
     var st = App.state;
@@ -546,58 +602,90 @@
     var isTurn = !st.winner && st.turn === p;
     var elim = four && C.isEliminated(st, p);
 
+    /* 行框：border ink/30；行棋中：border-ink + bg ink/4 + 左 4px 色条 */
+    ctx.save();
+    if (elim) ctx.globalAlpha = 0.55;
+    ctx.fillStyle = isTurn ? 'rgba(26,26,26,0.04)' : T.paper;
+    ctx.fillRect(row.x, row.y, row.w, row.h);
     if (isTurn) {
-      ctx.fillStyle = 'rgba(26,26,26,0.045)';
-      ctx.fillRect(row.x, row.y, row.w, row.h);
       ctx.fillStyle = col;
-      ctx.fillRect(row.x, row.y, 4, row.h);
+      ctx.fillRect(row.x, row.y, 4 * s, row.h);
     }
-    /* 名字行 */
+    ctx.strokeStyle = isTurn ? T.ink : 'rgba(26,26,26,0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(row.x, row.y, row.w, row.h);
+
+    /* 名字行：色点 + 名 + 行棋中/出局 + 右坐标 */
     var name = seatName(p);
     ctx.fillStyle = col;
-    ctx.beginPath(); ctx.arc(row.x + 14 * s, row.y + 16 * s, 5 * s, 0, Math.PI * 2); ctx.fill();
-    U.text(ctx, name, row.x + 26 * s, row.y + 21 * s, 14 * s, T.ink, 'serifB', true);
-    var status = elim ? '已出局' : isTurn ? (aiThinking && !isHumanTurnOf(st) ? '思考中' : '行棋中') : '候手';
-    U.text(ctx, '● ' + status, row.x + 26 * s, row.y + 38 * s, 9.5 * s, elim ? 'rgba(26,26,26,0.4)' : col, 'serif');
-    /* 坐标 */
+    ctx.beginPath(); ctx.arc(row.x + 20 * s, row.y + 18 * s, 6 * s, 0, Math.PI * 2); ctx.fill();
+    U.text(ctx, name, row.x + 34 * s, row.y + 24 * s, 16 * s, T.ink, 'serifB');
+    var tagTxt = elim ? '✕ 出局' : (isTurn ? '● 行棋中' : '');
+    if (tagTxt) U.tracked(ctx, tagTxt, row.x + 34 * s + ctx.measureText(name).width + 10 * s, row.y + 24 * s, 9 * s, elim ? 'rgba(26,26,26,0.45)' : col, 'mono', false, 2 * s);
     var pos = C.pawnOf(st, p);
-    if (pos) U.text(ctx, B.cellName(pos.x, pos.y, st.size), row.x + row.w - 12 * s, row.y + 21 * s, 12 * s, T.ink, 'mono', false, 'right');
-    /* 挡板胶囊 */
+    if (pos) U.text(ctx, B.cellName(pos.x, pos.y, st.size), row.x + row.w - 16 * s, row.y + 24 * s, 12 * s, 'rgba(26,26,26,0.6)', 'mono', false, 'right');
+
+    /* 挡板铅条 + ×N */
     var left = C.wallsLeftOf(st, p);
-    var pipY = row.y + 48 * s;
-    var pipW = U.wallPips(ctx, row.x + 14 * s, pipY, Math.min(st.wallsStart, 12), left, col, 14 * s, 7 * s, 4 * s);
-    U.text(ctx, '×' + left, row.x + 14 * s + pipW + 8 * s, pipY + 7 * s, 10 * s, 'rgba(26,26,26,0.55)', 'mono');
-    /* 底行：累计 + 归途 */
-    var totalTxt = '累计 ' + fmtClock(totals[p] + (isTurn ? Date.now() - turnStart : 0));
-    var dist = C.shortestPathLength(st, p);
-    U.text(ctx, totalTxt, row.x + 14 * s, row.y + row.h - 8 * s, 9 * s, 'rgba(26,26,26,0.5)', 'mono');
-    U.text(ctx, '归途 ' + (dist == null ? '—' : dist + ' 步峰值'), row.x + row.w - 12 * s, row.y + row.h - 8 * s, 9 * s, 'rgba(26,26,26,0.5)', 'mono', false, 'right');
+    var pipY = row.y + 40 * s;
+    var pipW = U.wallPips(ctx, row.x + 20 * s, pipY, Math.min(st.wallsStart, 10), left, col, 14 * s, 7 * s, 3 * s);
+    U.text(ctx, '×' + left, row.x + row.w - 16 * s, pipY + 7 * s, 10 * s, 'rgba(26,26,26,0.5)', 'mono', false, 'right');
+
+    /* 底行：累计/剩余 + 归途峰值 */
+    var tc = App.timeControl();
+    var used = totals[p] + (isTurn ? Date.now() - turnStart : 0);
+    var clockTxt, clockCol = 'rgba(26,26,26,0.45)';
+    if (tc.totalSec > 0) {
+      var remain = Math.max(0, Math.ceil((tc.totalSec * 1000 - used) / 1000));
+      clockTxt = '剩 ' + fmtClock(remain * 1000);
+      if (remain <= 30) { clockCol = T.risoRed; }
+    } else {
+      clockTxt = '累计 ' + fmtClock(used);
+    }
+    U.text(ctx, clockTxt, row.x + 20 * s, row.y + row.h - 14 * s, 10 * s, clockCol, 'mono');
+    U.text(ctx, '归途 ' + (maxPath[p] || 0) + ' 步峰值', row.x + row.w - 16 * s, row.y + row.h - 14 * s, 10 * s, 'rgba(26,26,26,0.45)', 'mono', false, 'right');
+    ctx.restore();
   }
 
   function seatName(p) {
     var App = G.App;
     var st = App.state;
     var cn = T.playerName(p);
-    if (App.mode === 'local') return '玩家 · ' + cn;
+    if (App.mode === 'local') return st.playerCount === 4 ? (App.seats[p] ? '真人 · ' + cn : 'AI · ' + cn) : cn;
     if (App.mode === 'quad') return (App.seats[p] ? '真人 · ' : 'AI · ') + cn;
     var human = humanSeat();
-    if (p === human) return '你 · ' + cn;
+    if (p === human) return App.humanFirst ? '你 · 甲（红）' : '你 · 乙（蓝）';
     return G.Core.AI_PROFILES[App.aiLevel].name + ' · ' + cn;
   }
 
   function modeLabel() {
     var App = G.App;
     if (App.mode === 'ai') return '单人对弈 · ' + G.Core.AI_PROFILES[App.aiLevel].name;
-    if (App.mode === 'local') return '双人同屏';
+    if (App.mode === 'local') return App.state && App.state.playerCount === 4 ? '四人围坐' : '双人同屏';
     return '四人围坐';
   }
-  function metaLine1() {
-    var App = G.App;
-    if (App.mode === 'ai') {
-      return App.humanFirst ? '单人对弈 · 你执红先行' : '单人对弈 · 你执蓝后行';
+  function configLabel(st) {
+    var seat = st.playerCount === 4 ? '四人' : '二人';
+    return st.size + '×' + st.size + ' · 每方 ' + st.wallsStart + ' 板 · ' + seat + '局';
+  }
+  function clkText(tc) {
+    if (!tc || (tc.totalSec <= 0 && tc.perMoveSec <= 0)) return '不限时';
+    var parts = [];
+    if (tc.totalSec > 0) parts.push(tc.totalSec >= 60 ? '总 ' + Math.round(tc.totalSec / 60) + ' 分' : '总 ' + tc.totalSec + ' 秒');
+    if (tc.perMoveSec > 0) parts.push('每步 ' + tc.perMoveSec + ' 秒');
+    return parts.join(' · ');
+  }
+  function winLine() {
+    var st = G.App.state;
+    if (st.winReason === 'timeout') {
+      return st.playerCount === 4 ? '众席超时出局 · 棋局继续' : (st.winner === 'A' ? '乙方超时 · 判负' : '甲方超时 · 判负');
     }
-    if (App.mode === 'local') return '双人同屏 · 轮流执子';
-    return '四人围坐 · 顺时针行棋 · 出局制';
+    if (st.winReason === 'last') return '末位存席 · 收笔';
+    return T.playerName(st.winner) + '胜 · 收笔';
+  }
+  function fmtShort(ms) {
+    var sec = ms / 1000;
+    return sec < 60 ? sec.toFixed(1) + 's' : fmtClock(ms);
   }
   function lastMoveOf(st) {
     var h = st.history || [];
@@ -643,26 +731,27 @@
     var g = resignAskLayout(lo);
     U.dim(ctx, 0.55);
     U.card(ctx, { x: g.x, y: g.y, w: g.w, h: g.h }, { shadow: true, shadowColor: 'rgba(26,26,26,0.3)' });
-    U.text(ctx, '确认认输？', g.x + g.w / 2, g.y + 44 * s, 18 * s, T.ink, 'serifX', true, 'center');
-    U.text(ctx, '落笔后此局即告收束，不可反悔。', g.x + g.w / 2, g.y + 74 * s, 12 * s, 'rgba(26,26,26,0.6)', 'serif', false, 'center');
+    U.text(ctx, '确认认输？', g.x + g.w / 2, g.y + 44 * s, 18 * s, T.ink, 'serifX', false, 'center');
+    var dl = U.wrap(ctx, '这一页将以认输收束。对方执笔写完最后一行。此操作不可撤销。', g.w - 48 * s, 12 * s, 'serif');
+    for (var di = 0; di < dl.length && di < 2; di++) {
+      U.text(ctx, dl[di], g.x + g.w / 2, g.y + 74 * s + di * 18 * s, 12 * s, 'rgba(26,26,26,0.7)', 'serif', false, 'center');
+    }
     U.button(ctx, g.no, pressed.resignNo);
     U.button(ctx, g.yes, pressed.resignYes);
   }
 
-  /* 结算浮层 —— 确定性几何 */
+  /* 结算浮层（Web VictoryOverlay 1:1：整页墨底纸白、巨型印章字 胜/败 + 印框） */
   function resultLayout(lo) {
     var L = G.Layout;
     var s = lo.S;
     var App = G.App;
-    var w = Math.min(lo.W - 40 * s, 350 * s);
-    var h = 430 * s;
-    var x = (lo.W - w) / 2, y = Math.max(L.safeTop + 30 * s, L.h / 2 - h / 2);
-    var bw = w - 48 * s;
+    var W = lo.W, H = L.h;
+    var bw = Math.min(W - 48 * s, 300 * s);
     return {
-      x: x, y: y, w: w, h: h,
-      save: { x: x + 24 * s, y: y + 252 * s, w: bw, h: 40 * s, track: true, fontSize: 12 * s },
-      again: { x: x + 24 * s, y: y + 298 * s, w: bw, h: 40 * s, track: true, fontSize: 12 * s },
-      toc: { x: x + 24 * s, y: y + 344 * s, w: bw, h: 40 * s, track: true, fontSize: 12 * s },
+      W: W, H: H,
+      save: { x: (W - bw) / 2, y: H - 150 * s, w: bw, h: 40 * s, track: true, fontSize: 12 * s },
+      again: { x: (W - bw) / 2, y: H - 102 * s, w: bw, h: 40 * s, track: true, fontSize: 12 * s },
+      toc: { x: (W - bw) / 2, y: H - 54 * s, w: bw, h: 40 * s, track: true, fontSize: 12 * s },
     };
   }
   function drawResult(ctx, lo) {
@@ -671,45 +760,83 @@
     var App = G.App;
     var st = App.state;
     var g = resultLayout(lo);
-    U.dim(ctx, 0.55);
-    U.card(ctx, { x: g.x, y: g.y, w: g.w, h: g.h }, { shadow: true, shadowColor: 'rgba(26,26,26,0.3)' });
 
-    U.tracked(ctx, '对局结果 THE GAME IS SET', g.x + g.w / 2, g.y + 26 * s, 9 * s, 'rgba(26,26,26,0.5)', 'mono', false, 2 * s, 'center');
-    /* 胜者 */
-    var winCol = T.playerColor(st.winner);
-    var winName = seatName(st.winner);
-    U.text(ctx, winName, g.x + g.w / 2, g.y + 64 * s, 24 * s, winCol, 'serifX', true, 'center');
-    U.text(ctx, '胜 · ' + reasonText(), g.x + g.w / 2, g.y + 90 * s, 13 * s, T.ink, 'serifB', true, 'center');
-    U.hline(ctx, g.x + 24 * s, g.y + 108 * s, g.w - 48 * s, 'rgba(26,26,26,0.25)', 1);
+    /* 整页墨黑底（Web fixed inset-0 bg-ink text-paper） */
+    ctx.fillStyle = T.ink;
+    ctx.fillRect(0, 0, g.W, g.H);
 
-    /* 数据行 */
+    var four = st.playerCount === 4;
+    /* 观屏者视角胜败章（Web iWon 逻辑 1:1） */
+    var iWon;
+    if (App.mode === 'ai') iWon = humanSeat() === st.winner;
+    else if (App.mode === 'quad') iWon = !!App.seats[st.winner];
+    else iWon = true;
+    var winHex = four ? T.playerColor(st.winner) : (st.winner === 'A' ? T.qa : T.qb);
+
+    /* 章头：FINAL PROOF / 第 N 手收笔 */
+    U.tracked(ctx, 'THE GAME IS SET — FINAL PROOF', 24 * s, Math.max(L.safeTop, 14) + 26 * s, 10 * s, 'rgba(245,242,234,0.6)', 'mono', false, 2 * s);
+    U.tracked(ctx, '第 ' + st.history.length + ' 手收笔', g.W - 24 * s, Math.max(L.safeTop, 14) + 26 * s, 10 * s, 'rgba(245,242,234,0.6)', 'mono', false, 1.5 * s, 'right');
+    U.hline(ctx, 24 * s, Math.max(L.safeTop, 14) + 38 * s, g.W - 48 * s, 'rgba(245,242,234,0.4)', 1);
+
+    /* 巨型印章字：胜 / 败（纸白字 + 胜方色套印阴影 6px） */
+    var stampY = g.H * 0.36;
+    var stampSize = 128 * s;
+    ctx.textAlign = 'center';
+    ctx.font = U.font(stampSize, 'serifX');
+    ctx.fillStyle = winHex;
+    ctx.fillText(iWon ? '胜' : '败', g.W / 2 + 6 * s, stampY + 6 * s);
+    ctx.fillStyle = T.paper;
+    ctx.fillText(iWon ? '胜' : '败', g.W / 2, stampY);
+    ctx.textAlign = 'left';
+    /* 印章框（旋转 -4°，胜方色） */
+    var fz = 170 * s;
+    ctx.save();
+    ctx.translate(g.W / 2, stampY - stampSize * 0.36);
+    ctx.rotate(-4 * Math.PI / 180);
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = winHex; ctx.lineWidth = 5 * s;
+    ctx.strokeRect(-fz / 2, -fz / 2, fz, fz);
+    ctx.restore();
+
+    /* 胜者行（Web：{winner} 执笔写完了最后一行 (reason)） */
+    var wn = four ? seatName(st.winner) : (st.winner === 'A'
+      ? (App.mode === 'ai' ? '你（甲）' : '甲')
+      : (App.mode === 'ai' ? G.Core.AI_PROFILES[App.aiLevel].name + '（乙）' : '乙'));
+    U.text(ctx, wn + ' 执笔写完了最后一行', g.W / 2, stampY + 60 * s, 20 * s, T.paper, 'serifB', false, 'center');
+    U.text(ctx, '（' + reasonText() + '）', g.W / 2, stampY + 84 * s, 12 * s, 'rgba(245,242,234,0.6)', 'mono', false, 'center');
+
+    /* 战绩 2×2（Web statItems：总手数 / 全局用时 / 挡板用量 / 最远归途） */
+    var sy = stampY + 120 * s;
+    var colW = (g.W - 48 * s) / 2;
     var stats = resultStats();
-    var sy = g.y + 134 * s;
-    for (var i = 0; i < stats.length; i++) {
-      U.text(ctx, stats[i][0], g.x + 28 * s, sy, 11.5 * s, 'rgba(26,26,26,0.6)', 'serif');
-      U.text(ctx, stats[i][1], g.x + g.w - 28 * s, sy, 12 * s, T.ink, 'mono', true, 'right');
-      sy += 26 * s;
+    for (var i = 0; i < stats.length && i < 4; i++) {
+      var cx2 = 24 * s + (i % 2) * colW + colW / 2;
+      var ry3 = sy + Math.floor(i / 2) * 64 * s;
+      U.tracked(ctx, stats[i][0], cx2, ry3, 10 * s, 'rgba(245,242,234,0.5)', 'mono', false, 3 * s, 'center');
+      U.text(ctx, stats[i][1], cx2, ry3 + 24 * s, 18 * s, T.paper, 'mono', true, 'center');
     }
 
-    U.text(ctx, '这盘棋留在纸面上的每一道墨迹，', g.x + g.w / 2, g.y + 216 * s, 10.5 * s, 'rgba(26,26,26,0.55)', 'serif', false, 'center');
-    U.text(ctx, '此刻正是一张可读的棋谱版画。', g.x + g.w / 2, g.y + 232 * s, 10.5 * s, 'rgba(26,26,26,0.55)', 'serif', false, 'center');
-
-    /* 操作按钮 */
+    /* 操作（Web：保存此局入档 / 再来一局 / 返回目录） */
     var rec = App._pendingRecord;
-    g.save.label = (rec && rec.archived) ? '✓ 已收入档案馆' : '保存此局入档';
+    g.save.label = (rec && rec.archived) ? '已收入档案馆' : '保存此局入档';
     g.save.disabled = rec && rec.archived;
+    g.save.solidColor = null;
     U.button(ctx, g.save, pressed.saveRec);
     g.again.label = '再来一局';
+    g.again.solidColor = null;
     U.button(ctx, g.again, pressed.again);
     g.toc.label = '返回目录';
+    g.toc.solidColor = null;
     U.button(ctx, g.toc, pressed.toToc);
-    /* 底注 */
-    U.text(ctx, '悔棋可退回终局前继续推演', g.x + g.w / 2, g.y + g.h - 22 * s, 9 * s, 'rgba(26,26,26,0.45)', 'mono', false, 'center');
+
+    /* 版画注脚 */
+    U.text(ctx, '这盘棋留在纸面上的每一道墨迹，此刻正是一张可读的棋谱版画。',
+      g.W / 2, g.H - 26 * s, 10 * s, 'rgba(245,242,234,0.4)', 'mono', false, 'center');
   }
   function reasonText() {
     var st = G.App.state;
-    if (st.winReason === 'resign') return '认输收束';
-    if (st.winReason === 'timeout') return '超时判负';
+    if (st.winReason === 'resign') return st.playerCount === 4 ? '众席认输 · 末位收笔' : '认输收束';
+    if (st.winReason === 'timeout') return st.playerCount === 4 ? '众席超时出局 · 末位收笔' : '超时判负';
     if (st.playerCount === 4) return '众席出局 · 末位收笔';
     return '抵达底线';
   }
@@ -721,14 +848,14 @@
     var maxDist = 0;
     var order = st.playerCount === 4 ? ['A', 'C', 'B', 'D'] : ['A', 'B'];
     for (var i = 0; i < order.length; i++) {
-      var d = C.shortestPathLength(st, order[i]);
-      if (d != null && d > maxDist) maxDist = d;
+      var d = maxPath[order[i]] || 0;
+      if (d > maxDist) maxDist = d;
     }
     return [
-      ['全局用时', fmtClock(totalMs)],
+      ['总手数', st.history.length + ' 手'],
+      ['全局用时', Math.round(totalMs / 1000) + ' 秒'],
       ['挡板用量', wallsUsed + ' / ' + (st.wallsStart * st.playerCount) + ' 根'],
       ['最远归途', maxDist + ' 步'],
-      ['总手数', st.history.length + ' 手'],
     ];
   }
 
@@ -738,6 +865,7 @@
     pg.press(x, y);
     var lo = layout();
     var L = G.Layout;
+    var s = lo.S;
     if (resultShown) {
       var rg = resultLayout(lo);
       if (U.inRect(rg.save, x, y)) pressed.saveRec = true;
@@ -763,10 +891,9 @@
     for (var bi = 0; bi < lo.btns.length; bi++) {
       if (U.inRect(lo.btns[bi], x, cy)) pressed['btn' + lo.btns[bi].key] = true;
     }
-    if (G.App.state && G.App.state.playerCount !== 4 && lo._swatches) {
-      for (var si = 0; si < lo._swatches.length; si++) {
-        if (U.inRect(lo._swatches[si], x, cy)) pressed['skin' + si] = true;
-      }
+    if (G.App.state && G.App.state.playerCount !== 4) {
+      var fs = U.filmStripHit(x, cy, lo.filmX, lo.palY, s);
+      if (fs >= 0) pressed['skin' + fs] = true;
     }
   }
 
@@ -777,6 +904,7 @@
     var App = G.App;
     var L = G.Layout;
     var st = App.state;
+    var s = lo.S;
 
     if (resultShown) {
       pg.release(x, y);
@@ -862,15 +990,14 @@
       pressed = {}; return;
     }
     /* 色版 */
-    if (lo._swatches && st && st.playerCount !== 4) {
-      for (var si = 0; si < lo._swatches.length; si++) {
-        if (pressed['skin' + si] && U.inRect(lo._swatches[si], x, cy)) {
-          App.skin = si;
-          T.applySkin(si);
-          App.savePrefs();
-          App.sfx('pawn-click');
-          pressed = {}; App.requestRedraw(); return;
-        }
+    if (st && st.playerCount !== 4) {
+      var fs2 = U.filmStripHit(x, cy, lo.filmX, lo.palY, s);
+      if (fs2 >= 0 && pressed['skin' + fs2]) {
+        App.skin = fs2;
+        T.applySkin(fs2);
+        App.savePrefs();
+        App.sfx('pawn-click');
+        pressed = {}; App.requestRedraw(); return;
       }
     }
     pressed = {};

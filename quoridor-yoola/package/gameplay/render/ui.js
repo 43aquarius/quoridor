@@ -6,9 +6,16 @@
   var T = G.Theme;
   var F = G.Fonts;
 
-  /* 字体串：serif/mono/west × 字重 */
+  /* 字体串：serif/mono/west × 字重。
+   * 字重专用子集已各自注册（qserif-b/qserif-x/qmono-b/qwest-x），
+   * bold 一律映射到对应字重字体，绝不叠加 CSS 合成加粗（否则笔画发糊）。 */
   function font(size, family, bold) {
-    var f = family === 'mono' ? (bold ? F.monoB : F.mono)
+    if (bold) {
+      if (family === 'serif') family = 'serifB';
+      else if (family === 'mono') family = 'monoB';
+      else if (family === 'west') family = 'westX';
+    }
+    var f = family === 'mono' ? F.mono
       : family === 'monoI' ? F.monoI
       : family === 'west' ? F.west
       : family === 'westX' ? F.westX
@@ -16,7 +23,7 @@
       : family === 'serifX' ? F.serifX
       : family === 'serifB' ? F.serifB
       : F.serif;
-    return (bold ? 'bold ' : '') + Math.round(size) + 'px ' + f;
+    return Math.round(size) + 'px ' + f;
   }
 
   /* 带字距文本（canvas 无 letter-spacing，逐字绘制） */
@@ -109,7 +116,11 @@
     }
     var fg = b.disabled ? 'rgba(26,26,26,0.35)' : (pressed ? T.paper : (solid ? T.paper : (b.color || T.ink)));
     if (b.label) {
-      if (b.track) tracked(ctx, b.label, x + w / 2, y + h / 2 + 1, b.fontSize || 13, fg, b.family || 'mono', b.bold !== false, b.spacing, 'center');
+      if (b.labelX != null) {
+        /* 图标钮：文字在图标右侧定高起始，避免叠压 */
+        if (b.track) tracked(ctx, b.label, b.labelX, y + h / 2 + 1, b.fontSize || 13, fg, b.family || 'mono', b.bold !== false, b.spacing);
+        else text(ctx, b.label, b.labelX, y + h / 2 + 1, b.fontSize || 14, fg, b.family || 'mono', b.bold !== false, undefined, 'middle');
+      } else if (b.track) tracked(ctx, b.label, x + w / 2, y + h / 2 + 1, b.fontSize || 13, fg, b.family || 'mono', b.bold !== false, b.spacing, 'center');
       else text(ctx, b.label, x + w / 2, y + h / 2 + 1, b.fontSize || 14, fg, b.family || 'mono', b.bold !== false, 'center', 'middle');
     }
   }
@@ -134,6 +145,14 @@
       if (inRect({ x: seg.x + i * (each + gap), y: seg.y, w: each, h: seg.h }, x, y, 4)) return i;
     }
     return -1;
+  }
+
+  /* 幽灵按钮（Web Button ghost：无边框，仅文字 ink/60） */
+  function ghostButton(ctx, b, pressed) {
+    if (b.label) {
+      text(ctx, b.label, b.x + b.w / 2, b.y + b.h / 2 + 1, b.fontSize || 12,
+        pressed ? T.ink : 'rgba(26,26,26,0.6)', 'mono', false, 'center', 'middle');
+    }
   }
 
   /* 挡板存量胶囊：n 枚圆角小条，剩余=实心，已用=空心 */
@@ -163,15 +182,20 @@
     ctx.closePath();
   }
 
-  /* 棋力格：filled 枚实心方块 + 空框 */
-  function powerGrid(ctx, x, y, filled, total, color, sz, gap) {
-    sz = sz || 9; gap = gap == null ? 3 : gap;
+  /* 棋力格：竖条（与 Web 版 h-3.5 w-2.5 竖条一致），filled 实心 + 空框 */
+  function powerGrid(ctx, x, y, filled, total, color, s, gap) {
+    s = s || 1;
+    var bw = 10 * s, bh = 14 * s;
+    gap = gap == null ? 6 * s : gap;
     for (var i = 0; i < total; i++) {
-      var px = x + i * (sz + gap);
-      if (i < filled) { ctx.fillStyle = color; ctx.fillRect(px, y, sz, sz); }
-      else { ctx.strokeStyle = 'rgba(26,26,26,0.4)'; ctx.lineWidth = 1.2; ctx.strokeRect(px, y, sz, sz); }
+      var px2 = x + i * (bw + gap);
+      if (i < filled) { ctx.fillStyle = color; ctx.fillRect(px2, y, bw, bh); }
+      else {
+        ctx.strokeStyle = 'rgba(26,26,26,0.4)'; ctx.lineWidth = 1.2;
+        ctx.strokeRect(px2, y, bw, bh);
+      }
     }
-    return total * (sz + gap) - gap;
+    return total * (bw + gap) - gap;
   }
 
   /* 分割线：实线 / 虚线 */
@@ -190,14 +214,89 @@
     }
   }
 
-  /* 顶部状态条（内页通用） */
-  function statusBar(ctx, W, y, title) {
-    tracked(ctx, '步步为营 · QUORIDOR', 16, y, 9, T.light, 'mono', false, 1.6);
-    var t = title || '限量印刷棋谱专著';
-    tracked(ctx, t, W - 16, y, 9, T.light, 'mono', false, 1.6, 'right');
-    hline(ctx, 0, y + 8, W, 'rgba(26,26,26,0.5)', 1);
-    ctx.fillStyle = T.ink;
-    ctx.fillRect(W - 44, y + 5, 44, 3); /* 线右端页签小块 */
+  /* 顶部刊头 running head（与 Web 版 QuoridorApp header 1:1：
+   * 左侧整串刊号文字，右侧皮肤套印说明；无横线、无色块页签） */
+  function statusBar(ctx, W, y, rightExtra) {
+    tracked(ctx, '步步为营 · QUORIDOR — 限量印刷棋谱专著', 16, y, 9, 'rgba(26,26,26,0.5)', 'mono', false, 1.4);
+    var right = rightExtra || ((G.App && G.App.skin != null && G.Theme.skins[G.App.skin] ? G.Theme.skins[G.App.skin].label : '红·蓝') + ' 套印');
+    tracked(ctx, right, W - 16, y, 9, 'rgba(26,26,26,0.5)', 'mono', false, 1.4, 'right');
+  }
+
+  /* 页脚页码 folio —— — n —— （与 Web 版 fixed bottom-3 1:1，留出安全间距） */
+  function folio(ctx, n) {
+    var L = G.Layout;
+    tracked(ctx, '— ' + n + ' —', L.w / 2, L.h - 22, 10, 'rgba(26,26,26,0.45)', 'mono', false, 1.6, 'center');
+  }
+
+  /* 套印色版胶片条（与 Web 版 SkinFilmStrip 1:1）：
+   * 齿孔带 6px×6 歇 / 四联 58×40 色卡 / 下方标签 / 刮选说明行 */
+  function filmStrip(ctx, x, y, s, selected) {
+    s = s || 1;
+    var T2 = G.Theme;
+    var App = G.App;
+    var FRAME_W = 58 * s, FRAME_H = 40 * s;
+    tracked(ctx, '套印色版 RISO PALETTE', x, y + 8 * s, 10 * s, 'rgba(26,26,26,0.6)', 'mono', false, 1.8 * s);
+    var fy = y + 14 * s;
+    /* 上齿孔 */
+    sprocket(ctx, x, fy, FRAME_W * 4, 6 * s);
+    fy += 6 * s;
+    for (var i = 0; i < 4; i++) {
+      var fx = x + i * FRAME_W;
+      var sk = T2.skins[i];
+      var sel = App && App.skin === i;
+      if (sel) { /* 选中外框 outline 2px offset 2 */
+        ctx.strokeStyle = T2.ink; ctx.lineWidth = 2 * s;
+        ctx.strokeRect(fx - 2 * s, fy - 2 * s, FRAME_W + 4 * s, FRAME_H + 4 * s);
+      }
+      ctx.fillStyle = sk.qa; ctx.fillRect(fx, fy, FRAME_W / 2, FRAME_H);
+      ctx.fillStyle = sk.qb; ctx.fillRect(fx + FRAME_W / 2, fy, FRAME_W / 2, FRAME_H);
+      ctx.strokeStyle = 'rgba(26,26,26,0.8)'; ctx.lineWidth = 1;
+      ctx.strokeRect(fx, fy, FRAME_W, FRAME_H);
+      if (sel) {
+        ctx.fillStyle = '#F5F2EA';
+        ctx.beginPath(); ctx.arc(fx + FRAME_W - 6 * s, fy + FRAME_H - 5 * s, 2.4 * s, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    fy += FRAME_H;
+    /* 下齿孔 */
+    sprocket(ctx, x, fy, FRAME_W * 4, 6 * s);
+    fy += 6 * s + 15 * s;
+    /* 标签行（与齿孔拉开间距） */
+    for (var li = 0; li < 4; li++) {
+      var sk2 = T2.skins[li];
+      var on = App && App.skin === li;
+      text(ctx, sk2.label, x + li * FRAME_W + FRAME_W / 2, fy, 9 * s,
+        on ? T2.ink : 'rgba(26,26,26,0.45)', 'mono', !!on, 'center');
+    }
+    fy += 16 * s;
+    /* 刮选说明 */
+    var cur = T2.skins[App ? App.skin : 0];
+    text(ctx, '横向拖拽刮选 · ' + (cur ? cur.desc : ''), x, fy, 10 * s, 'rgba(26,26,26,0.5)', 'mono');
+    return fy + 4 * s - y; /* 总高 */
+  }
+  function sprocket(ctx, x, y, w, h) {
+    ctx.fillStyle = 'rgba(26,26,26,0.8)';
+    for (var dx = 0; dx + 6 <= w + 1; dx += 14) {
+      ctx.fillRect(x + dx, y, 6, h);
+    }
+  }
+  /* 胶片条命中：返回选中索引或 -1 */
+  function filmStripHit(x, y, fx, fy, s) {
+    s = s || 1;
+    var FRAME_W = 58 * s, FRAME_H = 40 * s;
+    var top = fy + 14 * s + 6 * s;
+    if (y < top || y > top + FRAME_H) return -1;
+    if (x < fx || x > fx + FRAME_W * 4) return -1;
+    return Math.min(3, Math.max(0, Math.floor((x - fx) / FRAME_W)));
+  }
+
+  /* 遮罩层（弹层背景压暗） */
+  function dim(ctx, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, G.Layout.w + 4, G.Layout.h + 4);
+    ctx.restore();
   }
 
   /* 左下角 N 圆徽章 */
@@ -264,6 +363,7 @@
     inRect: inRect,
     card: card,
     button: button,
+    ghostButton: ghostButton,
     pillRow: pillRow,
     pillHit: pillHit,
     wallPips: wallPips,
@@ -272,6 +372,10 @@
     hline: hline,
     dotLeader: dotLeader,
     statusBar: statusBar,
+    folio: folio,
+    dim: dim,
+    filmStrip: filmStrip,
+    filmStripHit: filmStripHit,
     nBadge: nBadge,
     pageMark: pageMark,
     specCard: specCard,
