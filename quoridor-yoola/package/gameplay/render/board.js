@@ -16,23 +16,24 @@
     var unit = availW / total;
     return { N: N, u: unit, total: total, x0: x0, y0: y0, w: availW, h: availW };
   }
-  /* 棋盘 SVG 坐标 → 画布像素 */
+  /* 棋盘 SVG 坐标 → 画布像素（x/y 各用各自基准：x0/y0） */
   function px(m, v) { return m.x0 + (v + MARGIN) * m.u; }
+  function py(m, v) { return m.y0 + (v + MARGIN) * m.u; }
 
   function cellCenter(m, x, y) {
-    return { x: px(m, x * CELL + CELL / 2), y: px(m, y * CELL + CELL / 2) };
+    return { x: px(m, x * CELL + CELL / 2), y: py(m, y * CELL + CELL / 2) };
   }
 
   /* 挡板几何（SVG 单位）：h 板跨 (x..x+2, y+1) 行线；v 板跨 (x+1) 列线 (y..y+2) */
   function wallGeom(m, x, y, o) {
     if (o === 'h') {
       return {
-        x: px(m, x * CELL + INSET), y: px(m, (y + 1) * CELL - TH / 2),
+        x: px(m, x * CELL + INSET), y: py(m, (y + 1) * CELL - TH / 2),
         w: (2 * CELL - 2 * INSET) * m.u, h: TH * m.u,
       };
     }
     return {
-      x: px(m, (x + 1) * CELL - TH / 2), y: px(m, y * CELL + INSET),
+      x: px(m, (x + 1) * CELL - TH / 2), y: py(m, y * CELL + INSET),
       w: TH * m.u, h: (2 * CELL - 2 * INSET) * m.u,
     };
   }
@@ -72,10 +73,10 @@
 
     /* 书页双线边框 */
     ctx.strokeStyle = T.ink; ctx.lineWidth = Math.max(1.2, 2.6 * u);
-    ctx.strokeRect(px(m, -26), px(m, -26), (N * CELL + 42) * u, (N * CELL + 42) * u);
+    ctx.strokeRect(px(m, -26), py(m, -26), (N * CELL + 42) * u, (N * CELL + 42) * u);
     ctx.globalAlpha = 0.75;
     ctx.lineWidth = Math.max(0.8, 1 * u);
-    ctx.strokeRect(px(m, -19), px(m, -19), (N * CELL + 28) * u, (N * CELL + 28) * u);
+    ctx.strokeRect(px(m, -19), py(m, -19), (N * CELL + 28) * u, (N * CELL + 28) * u);
     ctx.globalAlpha = 1;
 
     /* 坐标（四周等宽小号） */
@@ -88,11 +89,11 @@
     for (var ci = 0; ci < N; ci++) {
       var l = colLetter(ci, N);
       var cxL = px(m, ci * CELL + CELL / 2 - 6);
-      ctx.fillText(l, cxL, px(m, -18));
-      ctx.fillText(l, cxL, px(m, N * CELL + 22));
+      ctx.fillText(l, cxL, py(m, -18));
+      ctx.fillText(l, cxL, py(m, N * CELL + 22));
       var num = String(N - ci);
-      ctx.fillText(num, px(m, -24), px(m, ci * CELL + CELL / 2));
-      ctx.fillText(num, px(m, N * CELL + 16), px(m, ci * CELL + CELL / 2));
+      ctx.fillText(num, px(m, -24), py(m, ci * CELL + CELL / 2));
+      ctx.fillText(num, px(m, N * CELL + 16), py(m, ci * CELL + CELL / 2));
     }
     ctx.textAlign = 'left';
     ctx.globalAlpha = 1;
@@ -102,10 +103,10 @@
     ctx.lineWidth = Math.max(0.6, 1.15 * u);
     ctx.beginPath();
     for (var gi = 0; gi <= N; gi++) {
-      ctx.moveTo(px(m, gi * CELL), px(m, 0));
-      ctx.lineTo(px(m, gi * CELL), px(m, N * CELL));
-      ctx.moveTo(px(m, 0), px(m, gi * CELL));
-      ctx.lineTo(px(m, N * CELL), px(m, gi * CELL));
+      ctx.moveTo(px(m, gi * CELL), py(m, 0));
+      ctx.lineTo(px(m, gi * CELL), py(m, N * CELL));
+      ctx.moveTo(px(m, 0), py(m, gi * CELL));
+      ctx.lineTo(px(m, N * CELL), py(m, gi * CELL));
     }
     ctx.stroke();
     ctx.globalAlpha = 1;
@@ -115,11 +116,11 @@
     ctx.setLineDash([2 * u, 7 * u]);
     ctx.globalAlpha = 0.5;
     ctx.beginPath();
-    ctx.moveTo(px(m, 2), px(m, 1)); ctx.lineTo(px(m, N * CELL - 2), px(m, 1));
-    ctx.moveTo(px(m, 2), px(m, N * CELL - 1)); ctx.lineTo(px(m, N * CELL - 2), px(m, N * CELL - 1));
+    ctx.moveTo(px(m, 2), py(m, 1)); ctx.lineTo(px(m, N * CELL - 2), py(m, 1));
+    ctx.moveTo(px(m, 2), py(m, N * CELL - 1)); ctx.lineTo(px(m, N * CELL - 2), py(m, N * CELL - 1));
     if (four) {
-      ctx.moveTo(px(m, 1), px(m, 2)); ctx.lineTo(px(m, 1), px(m, N * CELL - 2));
-      ctx.moveTo(px(m, N * CELL - 1), px(m, 2)); ctx.lineTo(px(m, N * CELL - 1), px(m, N * CELL - 2));
+      ctx.moveTo(px(m, 1), py(m, 2)); ctx.lineTo(px(m, 1), py(m, N * CELL - 2));
+      ctx.moveTo(px(m, N * CELL - 1), py(m, 2)); ctx.lineTo(px(m, N * CELL - 1), py(m, N * CELL - 2));
     }
     ctx.stroke();
     ctx.setLineDash([]);
@@ -133,10 +134,10 @@
         U.roundRect(ctx, x, y, w, h, h / 2);
         ctx.fill();
       };
-      mk(px(m, N * CELL / 2 - 26), px(m, -11), 52 * u, 7 * u, T.playerColor('A'));
-      mk(px(m, N * CELL / 2 - 26), px(m, N * CELL + 4), 52 * u, 7 * u, T.playerColor('B'));
-      mk(px(m, N * CELL + 4), px(m, N * CELL / 2 - 26), 7 * u, 52 * u, T.playerColor('C'));
-      mk(px(m, -11), px(m, N * CELL / 2 - 26), 7 * u, 52 * u, T.playerColor('D'));
+      mk(px(m, N * CELL / 2 - 26), py(m, -11), 52 * u, 7 * u, T.playerColor('A'));
+      mk(px(m, N * CELL / 2 - 26), py(m, N * CELL + 4), 52 * u, 7 * u, T.playerColor('B'));
+      mk(px(m, N * CELL + 4), py(m, N * CELL / 2 - 26), 7 * u, 52 * u, T.playerColor('C'));
+      mk(px(m, -11), py(m, N * CELL / 2 - 26), 7 * u, 52 * u, T.playerColor('D'));
       ctx.globalAlpha = 1;
     }
 
@@ -150,7 +151,7 @@
       for (var key in trace) {
         var parts = key.split(',');
         var tx2 = px(m, Number(parts[0]) * CELL + 9);
-        var ty2 = px(m, Number(parts[1]) * CELL + 24);
+        var ty2 = py(m, Number(parts[1]) * CELL + 24);
         ctx.fillText(String(trace[key]), tx2, ty2);
       }
       ctx.globalAlpha = 1;
@@ -196,7 +197,7 @@
       ctx.setLineDash([]);
       /* 中心十字 */
       var ccx = px(m, (opts.ghost.x + 1) * CELL);
-      var ccy = px(m, (opts.ghost.y + 1) * CELL);
+      var ccy = py(m, (opts.ghost.y + 1) * CELL);
       ctx.strokeStyle = pc; ctx.lineWidth = Math.max(1, 1.4 * u);
       ctx.beginPath();
       ctx.moveTo(ccx - 7 * u, ccy); ctx.lineTo(ccx + 7 * u, ccy);
@@ -249,7 +250,7 @@
       /* 落点四角裁切角标 */
       ctx.globalAlpha = 0.9;
       ctx.strokeStyle = col; ctx.lineWidth = 2.6 * u; ctx.lineCap = 'square';
-      var x0 = px(m, mv.to.x * CELL), y0 = px(m, mv.to.y * CELL);
+      var x0 = px(m, mv.to.x * CELL), y0 = py(m, mv.to.y * CELL);
       var mIn = 7 * u, L = 18 * u, c = CELL * u;
       ctx.beginPath();
       ctx.moveTo(x0 + mIn + L, y0 + mIn); ctx.lineTo(x0 + mIn, y0 + mIn); ctx.lineTo(x0 + mIn, y0 + mIn + L);
@@ -397,6 +398,7 @@
   G.Board = {
     metrics: metrics,
     px: px,
+    py: py,
     cellCenter: cellCenter,
     wallGeom: wallGeom,
     hit: hit,

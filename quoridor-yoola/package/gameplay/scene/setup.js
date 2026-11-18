@@ -566,9 +566,10 @@
       for (i = 0; i < lo.opps.length; i++) if (U.inRect(lo.opps[i], x, cy)) pressed['opp' + i] = true;
     }
     if (G.App.mode === 'quad') {
+      var sQ = lo.S;
       for (i = 0; i < lo.seatCards.length; i++) {
         var st2 = lo.seatCards[i];
-        var sb = seatBtnRect(st2, S);
+        var sb = seatBtnRect(st2, sQ);
         if (U.inRect(sb, x, cy)) pressed['seat' + st2.p] = true;
       }
       i = U.pillHit(lo.quadLvSeg, x, cy); if (i >= 0) pressed.quadLv = i;
@@ -644,9 +645,10 @@
       }
     }
     if (App.mode === 'quad') {
+      var sQ2 = lo.S;
       for (i = 0; i < lo.seatCards.length; i++) {
         var st3 = lo.seatCards[i];
-        var sb2 = seatBtnRect(st3, S);
+        var sb2 = seatBtnRect(st3, sQ2);
         if (pressed['seat' + st3.p] && U.inRect(sb2, x, cy)) {
           App.seats[st3.p] = !App.seats[st3.p];
           App.sfx('pawn-click'); pressed = {}; return;

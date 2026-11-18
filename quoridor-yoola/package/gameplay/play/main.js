@@ -116,9 +116,14 @@
       }
       var save = st.getSync(KEY_SAVE);
       if (typeof save === 'string') save = JSON.parse(save);
-      if (save && save.state && !save.state.winner) {
+      if (save && save.state && !save.state.winner && (save.state.history || []).length > 0) {
         App.save = save;
         App.saveExists = true;
+      } else if (save && save.state) {
+        /* 零手残档不算「未完的棋局」：抽掉书签，避免首次打开误显示续读条 */
+        try { st.removeSync(KEY_SAVE); } catch (e2) {}
+        App.save = null;
+        App.saveExists = false;
       }
     } catch (e) {
       App.save = null;
@@ -129,6 +134,13 @@
     if (!App.state || App.state.winner) return;
     var st = storage();
     if (!st) return;
+    /* 未落一子的棋局不算「未完的棋局」：不落书签；若此前已有书签则同步抽掉 */
+    if (!App.state.history || !App.state.history.length) {
+      App.save = null;
+      App.saveExists = false;
+      try { st.removeSync(KEY_SAVE); } catch (e0) {}
+      return;
+    }
     App.save = {
       v: 2, mode: App.mode, aiLevel: App.aiLevel, fmtIdx: App.fmtIdx,
       customSize: App.customSize, customWalls: App.customWalls,
